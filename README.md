@@ -5,6 +5,7 @@ Welcome to the general frame of LiteAudit!
 LiteAudit is a file-verification application that runs on your local computer. I'm calling it LiteAudit for now because it utilizes SQLite and it's a "lite"-weight application...
 
 
+
 #### 1) PROBLEM:
 Businesses and academic departments frequently ingest uploaded documents (PDFs, text files, etc.) for their daily operations. While there are antivirus software currently available, LiteAudit differs by being an application that has the ability to detect the structural anomalies of different documents. These problems can be: problematic SQL injections, script file renames, etc. Any individual, team or business that handles digital forms regularly can be at risk of allowing suspicious files to access their digital environment. Ingesting files without checking their true file signatures or content patterns allows vulnerabilities and data breaches to occur - becoming a cybersecurity issue.
 
