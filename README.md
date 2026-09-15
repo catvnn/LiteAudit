@@ -1,5 +1,7 @@
 # LiteAudit
 
+Welcome to the general frame of LiteAudit!
+
 LiteAudit is a file-verification application that runs on your local computer. I'm calling it LiteAudit for now because it utilizes SQLite and it's a "lite"-weight application...
 
 
