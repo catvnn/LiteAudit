@@ -1,0 +1,28 @@
+-- 1. USERS TABLE
+CREATE TABLE Users (
+    UserID INT PRIMARY KEY IDENTITY(1,1),
+    Username VARCHAR(50) NOT NULL UNIQUE,
+    PasswordHash VARCHAR(255) NOT NULL,
+    UserRole VARCHAR(20) DEFAULT 'Analyst',
+    CreatedAt DATETIME DEFAULT GETDATE()
+);
+
+-- 2. SCAN_LOGS TABLE
+CREATE TABLE ScanLogs (
+    ScanID INT PRIMARY KEY IDENTITY(1,1),
+    UserID INT FOREIGN KEY REFERENCES Users(UserID),
+    FileHash CHAR(64) NOT NULL, -- SHA-256 Hash
+    FileName VARCHAR(255) NOT NULL,
+    RiskScore INT CHECK (RiskScore BETWEEN 0 AND 100),
+    ScanStatus VARCHAR(20) NOT NULL, -- 'Clean', 'Suspicious', 'Malicious'
+    CompletedAt DATETIME DEFAULT GETDATE()
+);
+
+-- 3. SCAN_DETAILS TABLE
+CREATE TABLE ScanDetails (
+    DetailID INT PRIMARY KEY IDENTITY(1,1),
+    ScanID INT FOREIGN KEY REFERENCES ScanLogs(ScanID),
+    IssueType VARCHAR(50), -- 'Regex_Match', 'Script_Block'
+    Severity VARCHAR(15),  -- 'Low', 'Medium', 'High'
+    DescriptionText VARCHAR(MAX)
+);
