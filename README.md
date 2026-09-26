@@ -49,7 +49,7 @@ I've been studying Python programming language for a few years now, I have exper
 
 
 #### 7) AI TRANSPARENCY LOG:
-- So far, I have used generative AI to help me create the visual images you see above (ChatGPT). This just helped save me some time in creating neat flowcharts and graphs.
+- So far, I have used generative AI to help me create some of the visual images you see above. This just helped save me some time in creating neat flowcharts and graphs.
 - I am on board with using generative AI as a time-saving tool. However, for this project, it would be great to form a team that has foundational understanding of how to write SQL queries and program in Python. A foundational background in understanding application development would be a bonus as well.
 
 ====================================================================================
