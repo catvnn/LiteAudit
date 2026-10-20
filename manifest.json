@@ -1,9 +1,14 @@
 {
-    "manifest_version": 3,
-    "name": "My Streamlit Extension",
-    "version": "1.0",
-    "action": {
-        "default_popup": "popup.html"
-    },
-    "permissions": []
+  "manifest_version": 3,
+  "name": "LiteAudit",
+  "version": "1.0",
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "permissions": [
+    "activeTab"
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; frame-src https://*.streamlit.app;"
+  }
 }
