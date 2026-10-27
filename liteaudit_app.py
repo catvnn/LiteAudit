@@ -19,7 +19,34 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from database import delete_scans, get_all_scans, insert_scan_result
+from database import get_db_connection, insert_scan_result
+
+
+def load_scan_history() -> pd.DataFrame:
+    """Load scan records with IDs for individual selection and deletion."""
+    query = """
+    SELECT id, filename, verdict, score, sha256, tone, scan_date
+    FROM scans
+    ORDER BY scan_date DESC;
+    """
+    return pd.read_sql_query(query, get_db_connection())
+
+
+def delete_scans(scan_ids: list[int]) -> int:
+    """Delete selected scan records and clear cached query results."""
+    if not scan_ids:
+        return 0
+
+    unique_ids = tuple(dict.fromkeys(scan_ids))
+    placeholders = ", ".join("?" for _ in unique_ids)
+    cursor = get_db_connection().cursor()
+    cursor.execute(
+        f"DELETE FROM scans WHERE id IN ({placeholders});",
+        unique_ids,
+    )
+    cursor.connection.commit()
+    st.cache_data.clear()
+    return cursor.rowcount
 
 
 # Configure the page before rendering any Streamlit elements.
@@ -682,7 +709,7 @@ elif selected_section == "Audit history":
     if "deleted_scans_notice" in st.session_state:
         st.success(st.session_state.pop("deleted_scans_notice"))
 
-    history_df = get_all_scans()
+    history_df = load_scan_history()
     if history_df.empty:
         st.info("No scans have been saved yet. Scan a document to create the first record.")
     else:
