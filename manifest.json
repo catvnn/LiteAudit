@@ -1,9 +1,9 @@
 {
-    "manifest_version": 3,
-    "name": "My Streamlit Extension",
-    "version": "1.0",
-    "action": {
-        "default_popup": "popup.html"
-    },
-    "permissions": []
+  "manifest_version": 3,
+  "name": "LiteAudit Download Scanner",
+  "version": "1.1",
+  "action": { "default_popup": "popup.html" },
+  "permissions": ["downloads", "notifications"],
+  "host_permissions": ["<all_urls>", "http://localhost:5000/*"],
+  "background": { "service_worker": "background.js" }
 }
