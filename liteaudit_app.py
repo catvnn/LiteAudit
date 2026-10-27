@@ -9,7 +9,7 @@ analysis engine. Uploaded files are read into memory and are not written to disk
 """
 
 from __future__ import annotations
-
+from scanner import MAX_FILE_SIZE, scan_document
 import hashlib
 import re
 from datetime import datetime
