@@ -19,7 +19,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from database import get_all_scans, insert_scan_result
+from database import delete_scans, get_all_scans, insert_scan_result
 
 
 # Configure the page before rendering any Streamlit elements.
@@ -677,15 +677,61 @@ elif selected_section == "Audit history":
         '<div class="section-help">Saved scan results from the local database.</div>',
         unsafe_allow_html=True,
     )
+    if "delete_selection_version" not in st.session_state:
+        st.session_state.delete_selection_version = 0
+    if "deleted_scans_notice" in st.session_state:
+        st.success(st.session_state.pop("deleted_scans_notice"))
+
     history_df = get_all_scans()
     if history_df.empty:
         st.info("No scans have been saved yet. Scan a document to create the first record.")
     else:
+        scan_labels = {
+            int(row.id): (
+                f"{row.filename} — {row.scan_date} — {row.verdict} "
+                f"(record #{row.id})"
+            )
+            for row in history_df.itertuples(index=False)
+        }
+        selection_version = st.session_state.delete_selection_version
+        selected_scan_ids = st.multiselect(
+            "Select entries to delete",
+            options=list(scan_labels),
+            format_func=scan_labels.__getitem__,
+            key=f"selected_scan_ids_{selection_version}",
+            help="Each entry is selected by its unique database record ID.",
+        )
+        confirm_delete = st.checkbox(
+            "I confirm deleting the selected database entries.",
+            key=f"confirm_delete_scans_{selection_version}",
+            disabled=not selected_scan_ids,
+        )
+        if st.button(
+            "Delete selected entries",
+            type="secondary",
+            disabled=not selected_scan_ids or not confirm_delete,
+        ):
+            deleted_count = delete_scans(selected_scan_ids)
+            st.session_state.deleted_scans_notice = (
+                f"Deleted {deleted_count} database entr"
+                f"{'y' if deleted_count == 1 else 'ies'}."
+            )
+            st.session_state.delete_selection_version += 1
+            st.rerun()
+
         st.dataframe(
             history_df,
             use_container_width=True,
             hide_index=True,
             height=420,
+            column_order=[
+                "filename",
+                "verdict",
+                "score",
+                "sha256",
+                "tone",
+                "scan_date",
+            ],
             column_config={
                 "filename": st.column_config.TextColumn("FILE NAME", width="large"),
                 "verdict": st.column_config.TextColumn("VERDICT", width="medium"),
@@ -739,4 +785,4 @@ else:
         "- **50–100:** High risk"
     )
 
-st.caption("This is a LiteAudit prototype")
+st.caption("LiteAudit prototype yayyyyyy")
