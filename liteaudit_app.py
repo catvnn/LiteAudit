@@ -4,6 +4,11 @@ Run with:
     pip install streamlit pandas
     streamlit run liteaudit_app.py
 
+Enable the local Downloads folder monitor only when running LiteAudit on your
+own computer:
+    $env:LITEAUDIT_ENABLE_LOCAL_DOWNLOAD_MONITOR = "1"
+    streamlit run liteaudit_app.py
+
 This is a demonstration scanner, not a replacement for a production malware
 analysis engine. Uploaded files are read into memory and are not written to disk.
 """
@@ -11,6 +16,7 @@ analysis engine. Uploaded files are read into memory and are not written to disk
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 from datetime import datetime
 from html import escape
@@ -20,6 +26,7 @@ import pandas as pd
 import streamlit as st
 
 from database import get_db_connection, insert_scan_result
+from download_monitor import scan_download_folder, update_download_history
 
 
 def load_scan_history() -> pd.DataFrame:
@@ -413,6 +420,9 @@ st.markdown(
 
 # Maximum file size accepted by the uploader (25 MiB).
 MAX_FILE_SIZE = 25 * 1024 * 1024
+LOCAL_DOWNLOAD_MONITOR_ENABLED = (
+    os.environ.get("LITEAUDIT_ENABLE_LOCAL_DOWNLOAD_MONITOR") == "1"
+)
 
 # Byte signatures used to flag common document and script indicators.
 SIGNATURES = [
@@ -693,6 +703,101 @@ if selected_section == "Document scanner":
                 """,
                 unsafe_allow_html=True,
             )
+
+    @st.fragment(run_every="2s")
+    def render_background_downloads() -> None:
+        st.markdown(
+            '<div class="section-label">Background downloads</div>',
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            '<div class="section-help">Optional local monitoring for files being written '
+            'to a Downloads folder.</div>',
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            '<div id="liteaudit-downloads-monitor"></div>',
+            unsafe_allow_html=True,
+        )
+        if not LOCAL_DOWNLOAD_MONITOR_ENABLED:
+            st.info(
+                "The local server-side folder monitor is unavailable in this hosted "
+                "app. Use the browser folder monitor above to choose a folder on "
+                "your computer."
+            )
+            return
+
+        monitoring_enabled = st.toggle(
+            "Monitor this local Downloads folder",
+            key="local_download_monitor_enabled",
+            help="This works only when LiteAudit is running on this computer. "
+            "A hosted LiteAudit page cannot access your computer’s folders.",
+        )
+        downloads_folder = st.text_input(
+            "Folder to monitor",
+            value=str(Path.home() / "Downloads"),
+            key="local_download_folder",
+            help="Choose the Downloads folder on the computer running LiteAudit.",
+            disabled=not monitoring_enabled,
+        )
+
+        if not monitoring_enabled:
+            st.info("Monitoring is off. Turn it on to watch the selected local folder.")
+            return
+
+        folder = Path(downloads_folder).expanduser()
+        try:
+            entries = scan_download_folder(folder)
+            folder_key = str(folder.resolve())
+        except OSError as error:
+            st.error(f"Could not monitor this folder: {error}")
+            return
+
+        snapshots = st.session_state.setdefault("local_download_snapshots", {})
+        previous_snapshot = snapshots.get(folder_key, {})
+        now = datetime.now().timestamp()
+        histories = st.session_state.setdefault("local_download_history", {})
+        folder_history = histories.get(folder_key, {})
+        current_snapshot, folder_history = update_download_history(
+            entries,
+            previous_snapshot,
+            folder_history,
+            now,
+        )
+        snapshots[folder_key] = current_snapshot
+        histories[folder_key] = folder_history
+
+        if st.button("Clear download history", key="clear_download_history"):
+            histories[folder_key] = {}
+            st.rerun()
+
+        if folder_history:
+            display_entries = [
+                {
+                    "File": record["filename"],
+                    "Size": human_size(int(record["size_bytes"])),
+                    "Status": record["state"],
+                    "Last changed": datetime.fromtimestamp(
+                        float(record["modified_at"])
+                    ).strftime("%Y-%m-%d %H:%M:%S"),
+                }
+                for record in folder_history.values()
+            ]
+            st.dataframe(
+                pd.DataFrame(display_entries),
+                width="stretch",
+                hide_index=True,
+            )
+        else:
+            st.info("No files have been detected yet.")
+        st.caption(
+            "Checks every 2 seconds while this page is open. File names and sizes are "
+            "shown; file contents are never read. Detected files remain in this list "
+            "after they stop changing, until you clear the history. Any app writing "
+            "to this folder may appear. Up to 50 recent files are kept."
+        )
+
+    render_background_downloads()
 
 elif selected_section == "Audit history":
     # Display persisted scan metadata from the local SQLite database.
