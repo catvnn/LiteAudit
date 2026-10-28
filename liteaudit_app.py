@@ -10,7 +10,7 @@ own computer:
     streamlit run liteaudit_app.py --server.address 127.0.0.1 --server.port 8501
 
 The Chrome extension popup embeds this local app at:
-    http://127.0.0.1:8501/?embed=true
+    http://127.0.0.1:8501/
 
 This is a demonstration scanner, not a replacement for a production malware
 analysis engine. Uploaded files are read into memory and are not written to disk.
