@@ -86,11 +86,29 @@ def lookup_file_hash(sha256_hash):
 def get_all_scans():
     """Query 6: Fetch every single record from the database, newest first."""
     query = """
-    SELECT filename, verdict, score, sha256, tone, scan_date
+    SELECT id, filename, verdict, score, sha256, tone, scan_date
     FROM scans
     ORDER BY scan_date DESC;
     """
     return pd.read_sql_query(query, get_db_connection())
+
+
+def delete_scans(scan_ids: list[int]) -> int:
+    """Delete selected scan records by their unique database IDs."""
+    if not scan_ids:
+        return 0
+
+    unique_ids = tuple(dict.fromkeys(scan_ids))
+    placeholders = ", ".join("?" for _ in unique_ids)
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        f"DELETE FROM scans WHERE id IN ({placeholders});",
+        unique_ids,
+    )
+    conn.commit()
+    st.cache_data.clear()
+    return cursor.rowcount
 
 
 # ==============================================================================
