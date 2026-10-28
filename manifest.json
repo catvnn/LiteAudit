@@ -1,23 +1,12 @@
 {
     "manifest_version": 3,
     "name": "LiteAudit",
-    "version": "1.4",
-    "description": "LiteAudit document scanner with optional Downloads folder monitoring.",
+    "version": "1.5",
+    "description": "Opens the locally running LiteAudit app.",
     "action": {
         "default_popup": "popup.html"
     },
-    "permissions": ["storage"],
-    "host_permissions": [
-        "https://liteaudit-gvkpyymhzt5d9pzmauyf3v.streamlit.app/*"
-    ],
-    "content_scripts": [
-        {
-            "matches": [
-                "https://liteaudit-gvkpyymhzt5d9pzmauyf3v.streamlit.app/*"
-            ],
-            "js": ["content.js"],
-            "run_at": "document_idle",
-            "all_frames": true
-        }
-    ]
+    "content_security_policy": {
+        "extension_pages": "script-src 'self'; object-src 'self'; frame-src http://127.0.0.1:8501;"
+    }
 }
