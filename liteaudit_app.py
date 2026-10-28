@@ -712,43 +712,84 @@ if selected_section == "Document scanner":
         )
         st.markdown(
             '<div class="section-help">Optional local monitoring for files being written '
-            'to a Downloads folder.</div>',
+            'to a folder path on the computer running LiteAudit.</div>',
             unsafe_allow_html=True,
         )
         st.markdown(
             '<div id="liteaudit-downloads-monitor"></div>',
             unsafe_allow_html=True,
         )
-        if not LOCAL_DOWNLOAD_MONITOR_ENABLED:
-            st.info(
-                "The local server-side folder monitor is unavailable in this hosted "
-                "app. Use the browser folder monitor above to choose a folder on "
-                "your computer."
-            )
-            return
-
         monitoring_enabled = st.toggle(
-            "Monitor this local Downloads folder",
+            "Monitor this folder path",
             key="local_download_monitor_enabled",
-            help="This works only when LiteAudit is running on this computer. "
-            "A hosted LiteAudit page cannot access your computer’s folders.",
+            disabled=not LOCAL_DOWNLOAD_MONITOR_ENABLED,
+            help="Monitors files in the path below only when LiteAudit is running "
+            "on the computer that owns that path.",
         )
         downloads_folder = st.text_input(
-            "Folder to monitor",
+            "Folder path to monitor",
             value=str(Path.home() / "Downloads"),
             key="local_download_folder",
-            help="Choose the Downloads folder on the computer running LiteAudit.",
-            disabled=not monitoring_enabled,
+            help="Enter an absolute path, such as C:\\Users\\you\\Downloads.",
+            disabled=not LOCAL_DOWNLOAD_MONITOR_ENABLED,
         )
 
-        if not monitoring_enabled:
-            st.info("Monitoring is off. Turn it on to watch the selected local folder.")
+        if not LOCAL_DOWNLOAD_MONITOR_ENABLED:
+            st.info(
+                "Typed paths can only be monitored when LiteAudit runs locally on "
+                "the computer that owns the folder. The hosted app cannot access "
+                "your computer’s paths."
+            )
+            st.code(
+                '$env:LITEAUDIT_ENABLE_LOCAL_DOWNLOAD_MONITOR = "1"\n'
+                "streamlit run liteaudit_app.py",
+                language="powershell",
+            )
             return
 
         folder = Path(downloads_folder).expanduser()
         try:
-            entries = scan_download_folder(folder)
             folder_key = str(folder.resolve())
+        except OSError as error:
+            st.error(f"Could not resolve this folder path: {error}")
+            return
+
+        histories = st.session_state.setdefault("local_download_history", {})
+        folder_history = histories.get(folder_key, {})
+        if st.button(
+            "Clear detected files",
+            key="clear_download_history",
+            disabled=not folder_history,
+        ):
+            histories[folder_key] = {}
+            st.session_state.setdefault("local_download_snapshots", {})[
+                folder_key
+            ] = {}
+            st.rerun()
+
+        if not monitoring_enabled:
+            st.info("Monitoring is off. Turn it on to watch the folder path above.")
+            if folder_history:
+                display_history = [
+                    {
+                        "File": record["filename"],
+                        "Size": human_size(int(record["size_bytes"])),
+                        "Status": record["state"],
+                        "Last changed": datetime.fromtimestamp(
+                            float(record["modified_at"])
+                        ).strftime("%Y-%m-%d %H:%M:%S"),
+                    }
+                    for record in folder_history.values()
+                ]
+                st.dataframe(
+                    pd.DataFrame(display_history),
+                    width="stretch",
+                    hide_index=True,
+                )
+            return
+
+        try:
+            entries = scan_download_folder(folder)
         except OSError as error:
             st.error(f"Could not monitor this folder: {error}")
             return
@@ -756,8 +797,6 @@ if selected_section == "Document scanner":
         snapshots = st.session_state.setdefault("local_download_snapshots", {})
         previous_snapshot = snapshots.get(folder_key, {})
         now = datetime.now().timestamp()
-        histories = st.session_state.setdefault("local_download_history", {})
-        folder_history = histories.get(folder_key, {})
         current_snapshot, folder_history = update_download_history(
             entries,
             previous_snapshot,
@@ -766,10 +805,6 @@ if selected_section == "Document scanner":
         )
         snapshots[folder_key] = current_snapshot
         histories[folder_key] = folder_history
-
-        if st.button("Clear download history", key="clear_download_history"):
-            histories[folder_key] = {}
-            st.rerun()
 
         if folder_history:
             display_entries = [
@@ -793,8 +828,8 @@ if selected_section == "Document scanner":
         st.caption(
             "Checks every 2 seconds while this page is open. File names and sizes are "
             "shown; file contents are never read. Detected files remain in this list "
-            "after they stop changing, until you clear the history. Any app writing "
-            "to this folder may appear. Up to 50 recent files are kept."
+            "after they stop changing. Use Clear detected files to clear the history. "
+            "Any app writing to this folder may appear. Up to 50 recent files are kept."
         )
 
     render_background_downloads()
