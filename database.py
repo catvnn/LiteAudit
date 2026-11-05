@@ -34,3 +34,8 @@ WHERE filename LIKE '%.exe%' OR filename LIKE '%.bat%' OR filename LIKE '%.sh%';
 
 SELECT * FROM scans
 WHERE sha256 = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
+
+SELECT scan_id, filename, score, scan_date, sha256
+FROM scans
+WHERE verdict = 'Suspicious'
+ORDER BY scan_date DESC;
