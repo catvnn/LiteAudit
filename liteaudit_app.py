@@ -166,6 +166,46 @@ st.markdown(
         margin: 0;
     }
 
+    .guide-card {
+        height: 100%;
+        min-height: 180px;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 1.2rem;
+    }
+
+    .guide-number {
+        color: var(--mint);
+        font: 700 .72rem "Space Mono";
+        letter-spacing: .12em;
+        text-transform: uppercase;
+        margin-bottom: .85rem;
+    }
+
+    .guide-card h3 {
+        color: var(--ink);
+        font-size: 1.05rem;
+        margin: 0 0 .45rem;
+    }
+
+    .guide-card p {
+        color: var(--muted);
+        font-size: .86rem;
+        line-height: 1.6;
+        margin: 0;
+    }
+
+    .guide-note {
+        border: 1px solid #76552a;
+        background: #282014;
+        border-radius: 14px;
+        color: #d7c19d;
+        padding: 1rem 1.1rem;
+        line-height: 1.6;
+        margin: 1.2rem 0;
+    }
+
     .status-chip {
         display: inline-flex;
         gap: .5rem;
@@ -512,12 +552,13 @@ with st.sidebar:
     )
     st.markdown('<div class="side-label">Workspace</div>', unsafe_allow_html=True)
     if "selected_section" not in st.session_state:
-        st.session_state.selected_section = "Document scanner"
+        st.session_state.selected_section = "Getting started"
 
     navigation_items = [
-        ("◈", "Document scanner"),
-        ("◷", "Audit history"),
-        ("⌁", "Detection rules"),
+        ("⌂", "Getting started"),
+        ("◈", "Document Scanner"),
+        ("◷", "Audit History"),
+        ("⌁", "Detection Rules"),
     ]
     for icon, section in navigation_items:
         if st.button(
@@ -545,7 +586,86 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
-if selected_section == "Document scanner":
+if selected_section == "Getting started":
+    st.markdown('<div class="eyebrow">LiteAudit guide</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<h1 class="hero-title">A quick guide to scanning documents.</h1>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        '<p class="hero-copy">Check a PDF or plain-text file for common suspicious '
+        "patterns, then review the result before deciding what to do next.</p>",
+        unsafe_allow_html=True,
+    )
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    step_columns = st.columns(3, gap="medium")
+    guide_steps = [
+        (
+            "01 · Choose a file",
+            "Open Document scanner and upload a PDF or TXT file up to 25 MiB. "
+            "You can select it from your device or drag it into the upload area.",
+        ),
+        (
+            "02 · Run the scan",
+            "Check the file name, type, and size, then select Run secure scan. "
+            "LiteAudit inspects the file's contents without executing it.",
+        ),
+        (
+            "03 · Review the result",
+            "Read the verdict and risk score, expand detected indicators for details, "
+            "and use the SHA-256 fingerprint to identify this exact file.",
+        ),
+    ]
+    for column, (number, description) in zip(step_columns, guide_steps):
+        with column:
+            st.markdown(
+                f"""
+                <div class="guide-card">
+                    <div class="guide-number">{number}</div>
+                    <p>{description}</p>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown('<div class="section-label">Understand the verdict</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="section-help">Scores are based on the prototype’s static '
+        "signature checks and are capped at 100.</div>",
+        unsafe_allow_html=True,
+    )
+    verdict_columns = st.columns(3, gap="medium")
+    verdicts = [
+        ("0–14 · No known indicators", "The current checks did not find a known indicator."),
+        ("15–49 · Review needed", "An indicator was found. Review the details before trusting the file."),
+        ("50–100 · High risk", "Keep the file isolated and do not open it unless you know it is safe."),
+    ]
+    for column, (heading, description) in zip(verdict_columns, verdicts):
+        with column:
+            st.markdown(
+                f"""
+                <div class="guide-card" style="min-height:130px">
+                    <h3>{heading}</h3>
+                    <p>{description}</p>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+    st.markdown(
+        '<div class="guide-note"><strong>Important:</strong> LiteAudit is a file '
+        "scanner, not a full malware analysis service. A low score does not prove a file "
+        "is safe. Scans are checked in memory; scan metadata is saved in the local audit "
+        "database and can be reviewed under Audit History.</div>",
+        unsafe_allow_html=True,
+    )
+    if st.button("Go to document scanner  →", type="primary"):
+        st.session_state.selected_section = "Document scanner"
+        st.rerun()
+
+elif selected_section == "Document scanner":
     # Introduce the scanner and communicate its current status.
     top_left, top_right = st.columns([4, 1], vertical_alignment="top")
     with top_left:
@@ -576,7 +696,7 @@ if selected_section == "Document scanner":
         "<span><b>✓</b> In-memory analysis</span>"
         "<span><b>✓</b> No file execution</span>"
         "<span><b>✓</b> PDF + TXT support</span>"
-        "<span><b>✓</b> 200 MB maximum</span>"
+        "<span><b>✓</b> 25 MiB maximum</span>"
         "</div>",
         unsafe_allow_html=True,
     )
@@ -598,7 +718,7 @@ if selected_section == "Document scanner":
             "Choose a PDF or TXT document",
             type=["pdf", "txt"],
             label_visibility="collapsed",
-            help="Supported formats: PDF and plain text. Maximum file size: 200 MB.",
+            help="Supported formats: PDF and plain text. Maximum file size: 25 MiB.",
         )
 
         if uploaded_file:
@@ -644,7 +764,7 @@ if selected_section == "Document scanner":
 
         if scan_clicked and uploaded_file:
             if len(uploaded_bytes) > MAX_FILE_SIZE:
-                st.error("This file is larger than the 200 MB prototype limit.")
+                st.error("This file is larger than the 25 MiB prototype limit.")
             else:
                 result = scan_document(uploaded_file.name, uploaded_bytes)
                 scan_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -955,4 +1075,4 @@ else:
         "- **50–100:** High risk"
     )
 
-st.caption("LiteAudit prototype yayyyyyy")
+st.caption("Andrew Wallace: Business Analyst === Catherine Nguyen: Full-Stack Developer === Christy Arellano: Full-Stack Developer === Annie Oyervidez: Database Engineer === 2026")
