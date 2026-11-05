@@ -1075,4 +1075,4 @@ else:
         "- **50–100:** High risk"
     )
 
-st.caption("Andrew Wallace: Business Analyst ● Catherine Nguyen: Full-Stack Developer ● Christy Arellano: Full-Stack Developer ● Annie Oyervidez: Database Engineer ● 2026")
+st.caption("Andrew Wallace: Business Analyst  ●  Catherine Nguyen: Full-Stack Developer  ●  Christy Arellano: Full-Stack Developer  ●  Annie Oyervidez: Database Engineer  ●  2026")
