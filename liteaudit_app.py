@@ -28,18 +28,21 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from database import get_db_connection, insert_scan_result
+from database import (
+    get_all_scans,
+    get_critical_threats,
+    get_daily_scan_metrics,
+    get_db_connection,
+    get_duplicate_uploads,
+    get_executable_scans,
+    get_recent_scans,
+    get_suspicious_scans,
+    get_verdict_metrics,
+    insert_scan_result,
+    lookup_file_hash,
+    search_executables,
+)
 from download_monitor import scan_download_folder, update_download_history
-
-
-def load_scan_history() -> pd.DataFrame:
-    """Load scan records with IDs for individual selection and deletion."""
-    query = """
-    SELECT id, filename, verdict, score, sha256, tone, scan_date
-    FROM scans
-    ORDER BY scan_date DESC;
-    """
-    return pd.read_sql_query(query, get_db_connection())
 
 
 def delete_scans(scan_ids: list[int]) -> int:
@@ -662,10 +665,10 @@ if selected_section == "Getting started":
         unsafe_allow_html=True,
     )
     if st.button("Go to document scanner  →", type="primary"):
-        st.session_state.selected_section = "Document scanner"
+        st.session_state.selected_section = "Document Scanner"
         st.rerun()
 
-elif selected_section == "Document scanner":
+elif selected_section == "Document Scanner":
     # Introduce the scanner and communicate its current status.
     top_left, top_right = st.columns([4, 1], vertical_alignment="top")
     with top_left:
@@ -957,7 +960,7 @@ elif selected_section == "Document scanner":
 
     render_background_downloads()
 
-elif selected_section == "Audit history":
+elif selected_section == "Audit History":
     # Display persisted scan metadata from the local SQLite database.
     st.markdown(
         '<div class="section-label">Audit history</div>',
@@ -972,7 +975,7 @@ elif selected_section == "Audit history":
     if "deleted_scans_notice" in st.session_state:
         st.success(st.session_state.pop("deleted_scans_notice"))
 
-    history_df = load_scan_history()
+    history_df = get_all_scans()
     if history_df.empty:
         st.info("No scans have been saved yet. Scan a document to create the first record.")
     else:
@@ -1032,6 +1035,48 @@ elif selected_section == "Audit history":
             },
         )
 
+    with st.expander("Database reports and searches"):
+        overview_tab, file_tab, duplicate_tab, suspicious_tab = st.tabs(
+            ["Overview", "File filters", "Duplicates & hash lookup", "Suspicious"]
+        )
+        with overview_tab:
+            recent_col, verdict_col = st.columns(2)
+            with recent_col:
+                st.markdown("#### 5 most recent scans")
+                st.dataframe(get_recent_scans(), hide_index=True, use_container_width=True)
+            with verdict_col:
+                st.markdown("#### Scans by verdict")
+                st.dataframe(get_verdict_metrics(), hide_index=True, use_container_width=True)
+            st.markdown("#### Daily scan totals")
+            st.dataframe(get_daily_scan_metrics(), hide_index=True, use_container_width=True)
+            st.caption("Malicious totals include records whose verdict is exactly “Malicious.”")
+
+        with file_tab:
+            st.markdown("#### Filenames containing “exe”")
+            st.dataframe(search_executables(), hide_index=True, use_container_width=True)
+            risk_col, extension_col = st.columns(2)
+            with risk_col:
+                st.markdown("#### Score of 80 or higher")
+                st.dataframe(get_critical_threats(), hide_index=True, use_container_width=True)
+            with extension_col:
+                st.markdown("#### EXE, BAT, or SH files")
+                st.dataframe(get_executable_scans(), hide_index=True, use_container_width=True)
+
+        with duplicate_tab:
+            st.markdown("#### Repeated uploads by SHA-256")
+            st.dataframe(get_duplicate_uploads(), hide_index=True, use_container_width=True)
+            sha256_hash = st.text_input("Look up an exact SHA-256 hash")
+            if sha256_hash.strip():
+                st.dataframe(
+                    lookup_file_hash(sha256_hash),
+                    hide_index=True,
+                    use_container_width=True,
+                )
+
+        with suspicious_tab:
+            st.markdown("#### Records labeled Suspicious")
+            st.dataframe(get_suspicious_scans(), hide_index=True, use_container_width=True)
+
 else:
     # Explain the currently active byte-pattern checks and risk thresholds.
     st.markdown(
@@ -1075,4 +1120,4 @@ else:
         "- **50–100:** High risk"
     )
 
-st.caption("Andrew Wallace: Business Analyst • Catherine Nguyen: Full-Stack Developer • Christy Arellano: Full-Stack Developer • Annie Oyervidez: Database Engineer • 2026")
+st.caption("LiteAudit is brought to you by: Andrew Wallace (Business Analyst) • Catherine Nguyen (Full-Stack Developer) • Christy Arellano (Full-Stack Developer) • Annie Oyervidez (Database Engineer) • 2026")
