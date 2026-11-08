@@ -82,7 +82,7 @@ st.set_page_config(
 
 st.session_state.setdefault(
     "light_mode",
-    get_app_setting("theme", "dark") == "light",
+    get_app_setting("theme", "light") == "light",
 )
 st.session_state.setdefault(
     "local_download_monitor_enabled",
@@ -153,29 +153,12 @@ def record_settings_change(detail: str) -> None:
 
 
 def save_theme_preference() -> None:
-    """Persist the sidebar theme selection."""
-    selected_theme = "light" if st.session_state.light_mode else "dark"
-    saved_theme = get_app_setting("theme", "dark")
+    """Persist the sidebar's dark-mode selection."""
+    st.session_state.light_mode = not st.session_state.dark_mode
+    selected_theme = "dark" if st.session_state.dark_mode else "light"
+    saved_theme = get_app_setting("theme", "light")
     if selected_theme != saved_theme:
         set_app_setting("theme", selected_theme)
-        record_settings_change(
-            f"Appearance theme changed to {selected_theme} mode."
-        )
-
-
-def save_settings_theme_preference() -> None:
-    """Keep the Settings theme choice synchronized with the shared app theme."""
-    light_mode_selected = (
-        st.session_state["settings-theme-choice"] == "Light Mode"
-    )
-    st.session_state["light_mode"] = light_mode_selected
-    selected_theme = "light" if light_mode_selected else "dark"
-    saved_theme = get_app_setting("theme", "dark")
-    if selected_theme != saved_theme:
-        set_app_setting("theme", selected_theme)
-        record_settings_change(
-            f"Appearance theme changed to {selected_theme} mode."
-        )
 
 
 def save_download_monitor_settings() -> None:
@@ -211,31 +194,68 @@ def save_download_monitor_settings() -> None:
 theme_colors = {
     "page": "#eef4fc" if st.session_state.light_mode else "#071326",
     "sidebar": "#e4edfa" if st.session_state.light_mode else "#081a33",
+    "sidebar_toggle_border": (
+        "#9bb6de" if st.session_state.light_mode else "#5276ad"
+    ),
+    "sidebar_toggle_icon": (
+        "#315e9d" if st.session_state.light_mode else "#b8d3ff"
+    ),
+    "theme_toggle_track": (
+        "#c5d3e6" if st.session_state.light_mode else "#31496c"
+    ),
+    "theme_toggle_track_border": (
+        "#8299ba" if st.session_state.light_mode else "#5879a7"
+    ),
+    "theme_toggle_help_icon": (
+        "#536987" if st.session_state.light_mode else "#a9b5c8"
+    ),
     "ink": "#102341" if st.session_state.light_mode else "#e8f0ff",
     "muted": "#536987" if st.session_state.light_mode else "#9aaccb",
     "panel": "#ffffff" if st.session_state.light_mode else "#0d1f3a",
     "panel_2": "#f3f7fd" if st.session_state.light_mode else "#10284a",
     "line": "#c9d8ee" if st.session_state.light_mode else "#203b63",
+    "notification_action_line": (
+        "#c9d8ee" if st.session_state.light_mode else "#496b98"
+    ),
     "accent": "#1769d2" if st.session_state.light_mode else "#2f8cff",
     "accent_hover": "#0c54b5" if st.session_state.light_mode else "#57a3ff",
     "accent_soft": "#dceaff" if st.session_state.light_mode else "#102f57",
+    "scan_button_disabled_bg": (
+        "#dceaff" if st.session_state.light_mode else "#244a76"
+    ),
+    "scan_button_disabled_text": (
+        "#0c54b5" if st.session_state.light_mode else "#e8f0ff"
+    ),
     "button_text": "#ffffff",
     "note_bg": "#fff7e8" if st.session_state.light_mode else "#25233a",
     "note_line": "#e6c77e" if st.session_state.light_mode else "#55507f",
     "note_text": "#664e20" if st.session_state.light_mode else "#ddd5ff",
     "safe_bg": "#e7f8f0" if st.session_state.light_mode else "#0d302d",
     "safe_line": "#93d5b6" if st.session_state.light_mode else "#23635a",
+    "safe_text": "#16794c" if st.session_state.light_mode else "#93d5b6",
     "warn_bg": "#fff5df" if st.session_state.light_mode else "#302a1e",
     "warn_line": "#e8c67b" if st.session_state.light_mode else "#705b32",
+    "warn_text": "#8a5b08" if st.session_state.light_mode else "#e8c67b",
     "danger_bg": "#fff0f1" if st.session_state.light_mode else "#321e2b",
     "danger_line": "#e6a3ac" if st.session_state.light_mode else "#753a50",
+    "danger_text": "#a42f43" if st.session_state.light_mode else "#e6a3ac",
+    "neutral_bg": "#e8edf4" if st.session_state.light_mode else "#243653",
+    "neutral_text": "#59697f" if st.session_state.light_mode else "#c4d2e8",
     "trust": "#405878" if st.session_state.light_mode else "#a9bbd8",
+    "app_color_scheme": "light" if st.session_state.light_mode else "dark",
 }
 theme_css_vars = "\n".join(
     f"--{name.replace('_', '-')}: {value};" for name, value in theme_colors.items()
 )
 st.markdown(
-    f"<style>:root {{ {theme_css_vars} }}</style>",
+    f"""
+    <style>
+    :root {{ {theme_css_vars} }}
+    .stApp {{
+        color-scheme: var(--app-color-scheme) !important;
+    }}
+    </style>
+    """,
     unsafe_allow_html=True,
 )
 
@@ -265,6 +285,11 @@ st.markdown(
         background: transparent;
     }
 
+    [data-testid="stThemeSwitcher"],
+    [data-testid="stThemeSwitcher"] + [data-testid="stMainMenuDivider"] {
+        display: none !important;
+    }
+
     [data-testid="stSidebar"] [data-testid="stBaseButton-headerNoPadding"],
     [data-testid="stExpandSidebarButton"] {
         display: flex !important;
@@ -272,24 +297,46 @@ st.markdown(
         height: 2.35rem !important;
         align-items: center;
         justify-content: center;
-        border: 1px solid rgba(75, 137, 245, .3) !important;
+        border: 1px solid var(--sidebar-toggle-border) !important;
         border-radius: 999px !important;
         background: var(--panel) !important;
-        color: #315e9d !important;
+        color: var(--sidebar-toggle-icon) !important;
         box-shadow: 0 2px 8px rgba(8, 26, 51, .12) !important;
         opacity: 1 !important;
         visibility: visible !important;
     }
 
+    [data-testid="stSidebar"] [data-testid="stBaseButton-headerNoPadding"] {
+        transform: translateY(-.5rem);
+    }
+
+    [data-testid="stExpandSidebarButton"] {
+        transform: translateY(.75rem);
+    }
+
+    [data-testid="stSidebar"] [data-testid="stBaseButton-headerNoPadding"] *,
+    [data-testid="stExpandSidebarButton"] * {
+        color: var(--sidebar-toggle-icon) !important;
+        fill: currentColor;
+        stroke: currentColor;
+    }
+
     [data-testid="stSidebar"] [data-testid="stBaseButton-headerNoPadding"]:hover,
     [data-testid="stExpandSidebarButton"]:hover {
-        background: var(--accent-soft);
-        color: var(--accent);
+        background: var(--accent-soft) !important;
+        border-color: var(--accent) !important;
+        color: var(--accent-hover) !important;
+    }
+
+    [data-testid="stSidebar"] [data-testid="stBaseButton-headerNoPadding"]:hover *,
+    [data-testid="stExpandSidebarButton"]:hover * {
+        color: var(--accent-hover) !important;
     }
 
     [data-testid="stSidebar"] {
         background: var(--sidebar);
         border-right: 1px solid var(--line);
+        color: var(--ink);
     }
 
     [data-testid="stSidebar"] > div:first-child {
@@ -598,18 +645,18 @@ st.markdown(
     }
 
     .verdict-badge.safe {
-        color: #16794c;
-        background: #dff5e9;
+        color: var(--safe-text);
+        background: var(--safe-bg);
     }
 
     .verdict-badge.warn {
-        color: #8a5b08;
-        background: #fff0c9;
+        color: var(--warn-text);
+        background: var(--warn-bg);
     }
 
     .verdict-badge.danger {
-        color: #a42f43;
-        background: #fde1e5;
+        color: var(--danger-text);
+        background: var(--danger-bg);
     }
 
     .page-panel {
@@ -712,6 +759,19 @@ st.markdown(
     div.stButton > button[kind="primary"]:hover {
         background: var(--accent-hover);
         border-color: var(--accent-hover);
+    }
+
+    .stApp:has(.file-scanner-root) .st-key-start_file_scan button {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: var(--button-text);
+    }
+
+    .stApp:has(.file-scanner-root) .st-key-start_file_scan button:disabled {
+        background: var(--scan-button-disabled-bg) !important;
+        border-color: var(--scan-button-disabled-bg) !important;
+        color: var(--scan-button-disabled-text) !important;
+        opacity: 1;
     }
 
     .side-label {
@@ -842,6 +902,53 @@ st.markdown(
         background: var(--panel);
     }
 
+    .st-key-dark_mode [data-testid="stCheckbox"] label:has(input[role="switch"]:not(:checked)) > div:first-of-type {
+        background: var(--theme-toggle-track) !important;
+        box-shadow: inset 0 0 0 1px var(--theme-toggle-track-border);
+    }
+
+    .st-key-dark_mode [data-testid="stCheckbox"] label > div:first-of-type > div {
+        background: #fff !important;
+        box-shadow: 0 1px 3px rgba(16, 35, 65, .25);
+    }
+
+    .st-key-dark_mode [data-testid="stTooltipIcon"] button {
+        width: 1.4rem;
+        height: 1.4rem;
+        padding: 0;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        color: var(--theme-toggle-help-icon) !important;
+        opacity: 1 !important;
+        box-shadow: none;
+    }
+
+    .st-key-dark_mode [data-testid="stTooltipIcon"] button svg {
+        color: var(--theme-toggle-help-icon) !important;
+        opacity: 1 !important;
+        stroke: var(--theme-toggle-help-icon) !important;
+        stroke-width: 2.5px;
+    }
+
+    .st-key-dark_mode [data-testid="stTooltipIcon"] {
+        margin-left: -.3rem;
+    }
+
+    .st-key-dark_mode [data-testid="stTooltipIcon"] button:hover,
+    .st-key-dark_mode [data-testid="stTooltipIcon"] button:focus-visible {
+        border: 0;
+        background: transparent;
+        color: var(--accent-hover) !important;
+        box-shadow: none;
+    }
+
+    .st-key-dark_mode [data-testid="stTooltipIcon"] button:hover svg,
+    .st-key-dark_mode [data-testid="stTooltipIcon"] button:focus-visible svg {
+        color: var(--accent-hover) !important;
+        stroke: var(--accent-hover) !important;
+    }
+
     [data-testid="stDataFrame"] {
         border: 1px solid var(--line);
         border-radius: 12px;
@@ -854,14 +961,7 @@ st.markdown(
     }
 
     .stApp:has(.file-scanner-root) [data-testid="stSidebar"] {
-        --sidebar: #0c1932;
-        --ink: #edf4ff;
-        --muted: #a8bbd8;
-        --panel: #132849;
-        --line: #233d65;
-        --accent: #4b89f5;
-        --accent-soft: #1d3965;
-        background: #0c1932;
+        background: var(--sidebar);
     }
 
     .file-scanner-header {
@@ -1033,6 +1133,22 @@ st.markdown(
         background: transparent;
     }
 
+    .stApp:has(.file-scanner-root) .st-key-file-upload-card [data-testid="stFileUploader"] [data-testid="stBaseButton-secondary"] {
+        border: 1px solid var(--line) !important;
+        background: var(--panel-2) !important;
+        color: var(--ink) !important;
+    }
+
+    .stApp:has(.file-scanner-root) .st-key-file-upload-card [data-testid="stFileUploader"] [data-testid="stBaseButton-secondary"] [data-testid="stIconMaterial"] {
+        color: var(--accent) !important;
+    }
+
+    .stApp:has(.file-scanner-root) .st-key-file-upload-card [data-testid="stFileUploader"] [data-testid="stBaseButton-secondary"]:hover {
+        border-color: var(--accent) !important;
+        background: var(--accent-soft) !important;
+        color: var(--ink) !important;
+    }
+
     .stApp:has(.file-scanner-root) .st-key-file-upload-card [data-testid="stFileUploaderDropzone"] {
         display: flex;
         flex-direction: column;
@@ -1073,6 +1189,28 @@ st.markdown(
 
     .stApp:has(.file-scanner-root) .st-key-file-options-card [data-testid="stCheckbox"] {
         margin: .15rem 0;
+    }
+
+    .stApp:has(.file-scanner-root) .st-key-file-options-card [data-testid="stCheckbox"] label:has(input[type="checkbox"]:not(:checked)) > div:first-of-type {
+        background: var(--panel-2) !important;
+        border: 1px solid var(--line) !important;
+        box-shadow: none !important;
+    }
+
+    .stApp:has(.file-scanner-root) .st-key-file-options-card [data-testid="stTooltipIcon"] button,
+    .stApp:has(.file-scanner-root) .st-key-file-options-card [data-testid="stTooltipIcon"] button svg {
+        color: var(--muted) !important;
+        opacity: 1 !important;
+        stroke: var(--muted) !important;
+        stroke-width: 2.5px;
+    }
+
+    .stApp:has(.file-scanner-root) .st-key-file-options-card [data-testid="stTooltipIcon"] button:hover,
+    .stApp:has(.file-scanner-root) .st-key-file-options-card [data-testid="stTooltipIcon"] button:focus-visible,
+    .stApp:has(.file-scanner-root) .st-key-file-options-card [data-testid="stTooltipIcon"] button:hover svg,
+    .stApp:has(.file-scanner-root) .st-key-file-options-card [data-testid="stTooltipIcon"] button:focus-visible svg {
+        color: var(--accent-hover) !important;
+        stroke: var(--accent-hover) !important;
     }
 
     .file-scanner-section-heading {
@@ -1135,9 +1273,9 @@ st.markdown(
         white-space: nowrap;
     }
 
-    .file-scanner-pill.safe { background: #e2f5e8; color: #258044; }
-    .file-scanner-pill.warn { background: #fff1c9; color: #8a640c; }
-    .file-scanner-pill.danger { background: #fde4e4; color: #a32c39; }
+    .file-scanner-pill.safe { background: var(--safe-bg); color: var(--safe-text); }
+    .file-scanner-pill.warn { background: var(--warn-bg); color: var(--warn-text); }
+    .file-scanner-pill.danger { background: var(--danger-bg); color: var(--danger-text); }
 
     .stApp:has(.file-scanner-root) [class*="st-key-view_scan_"] button {
         min-height: 1.9rem;
@@ -1179,14 +1317,7 @@ st.markdown(
     }
 
     .stApp:has(.threat-detection-root) [data-testid="stSidebar"] {
-        --sidebar: #0c1932;
-        --ink: #edf4ff;
-        --muted: #a8bbd8;
-        --panel: #132849;
-        --line: #233d65;
-        --accent: #4b89f5;
-        --accent-soft: #1d3965;
-        background: #0c1932;
+        background: var(--sidebar);
     }
 
     .threat-detection-header {
@@ -1305,9 +1436,9 @@ st.markdown(
         font-size: .86rem;
     }
 
-    .threat-file-level strong.high { color: #d94d4d; }
-    .threat-file-level strong.medium { color: #d7a721; }
-    .threat-file-level strong.low { color: #45a95c; }
+    .threat-file-level strong.high { color: var(--danger-text); }
+    .threat-file-level strong.medium { color: var(--warn-text); }
+    .threat-file-level strong.low { color: var(--safe-text); }
 
     .stApp:has(.threat-detection-root) [data-testid="stTabs"] {
         margin-top: .4rem;
@@ -1330,16 +1461,16 @@ st.markdown(
         gap: .9rem;
         margin: .65rem 0 .9rem;
         padding: .95rem 1rem;
-        border: 1px solid #e8b8bc;
+        border: 1px solid var(--danger-line);
         border-radius: 11px;
-        background: #fff0f0;
-        color: #6f252b;
+        background: var(--danger-bg);
+        color: var(--danger-text);
     }
 
     .threat-alert-card.safe {
-        border-color: #a9d8b7;
-        background: #eaf7ed;
-        color: #235a34;
+        border-color: var(--safe-line);
+        background: var(--safe-bg);
+        color: var(--safe-text);
     }
 
     .threat-alert-icon {
@@ -1437,14 +1568,7 @@ st.markdown(
     }
 
     .stApp:has(.audit-history-root) [data-testid="stSidebar"] {
-        --sidebar: #0c1932;
-        --ink: #edf4ff;
-        --muted: #a8bbd8;
-        --panel: #132849;
-        --line: #233d65;
-        --accent: #4b89f5;
-        --accent-soft: #1d3965;
-        background: #0c1932;
+        background: var(--sidebar);
     }
 
     .audit-history-header {
@@ -1542,20 +1666,20 @@ st.markdown(
 
     .audit-history-result.safe,
     .audit-history-level.low {
-        background: #e2f5e8;
-        color: #258044;
+        background: var(--safe-bg);
+        color: var(--safe-text);
     }
 
     .audit-history-result.warn,
     .audit-history-level.medium {
-        background: #fff1c9;
-        color: #8a640c;
+        background: var(--warn-bg);
+        color: var(--warn-text);
     }
 
     .audit-history-result.danger,
     .audit-history-level.high {
-        background: #fde4e4;
-        color: #a32c39;
+        background: var(--danger-bg);
+        color: var(--danger-text);
     }
 
     .audit-history-pagination {
@@ -1595,14 +1719,7 @@ st.markdown(
     }
 
     .stApp:has(.activity-monitor-root) [data-testid="stSidebar"] {
-        --sidebar: #0c1932;
-        --ink: #edf4ff;
-        --muted: #a8bbd8;
-        --panel: #132849;
-        --line: #233d65;
-        --accent: #4b89f5;
-        --accent-soft: #1d3965;
-        background: #0c1932;
+        background: var(--sidebar);
     }
 
     .activity-monitor-header {
@@ -1692,18 +1809,18 @@ st.markdown(
     }
 
     .activity-status.scanned {
-        background: #e2f5e8;
-        color: #258044;
+        background: var(--safe-bg);
+        color: var(--safe-text);
     }
 
     .activity-status.unscanned {
-        background: #fff1c9;
-        color: #8a640c;
+        background: var(--warn-bg);
+        color: var(--warn-text);
     }
 
     .activity-status.suspicious {
-        background: #fde4e4;
-        color: #a32c39;
+        background: var(--danger-bg);
+        color: var(--danger-text);
     }
 
     .stApp:has(.activity-monitor-root) [class*="st-key-activity-scan-"] button {
@@ -1746,14 +1863,7 @@ st.markdown(
     }
 
     .stApp:has(.user-management-root) [data-testid="stSidebar"] {
-        --sidebar: #0c1932;
-        --ink: #edf4ff;
-        --muted: #a8bbd8;
-        --panel: #132849;
-        --line: #233d65;
-        --accent: #4b89f5;
-        --accent-soft: #1d3965;
-        background: #0c1932;
+        background: var(--sidebar);
     }
 
     .user-management-header {
@@ -1834,13 +1944,13 @@ st.markdown(
     }
 
     .user-status.active {
-        background: #e2f5e8;
-        color: #258044;
+        background: var(--safe-bg);
+        color: var(--safe-text);
     }
 
     .user-status.inactive {
-        background: #e8edf4;
-        color: #59697f;
+        background: var(--neutral-bg);
+        color: var(--neutral-text);
     }
 
     .stApp:has(.user-management-root) [class*="st-key-user-edit-"] button,
@@ -1883,14 +1993,7 @@ st.markdown(
     }
 
     .stApp:has(.reports-analytics-root) [data-testid="stSidebar"] {
-        --sidebar: #0c1932;
-        --ink: #edf4ff;
-        --muted: #a8bbd8;
-        --panel: #132849;
-        --line: #233d65;
-        --accent: #4b89f5;
-        --accent-soft: #1d3965;
-        background: #0c1932;
+        background: var(--sidebar);
     }
 
     .reports-analytics-header {
@@ -2011,14 +2114,7 @@ st.markdown(
     }
 
     .stApp:has(.settings-root) [data-testid="stSidebar"] {
-        --sidebar: #0c1932;
-        --ink: #edf4ff;
-        --muted: #a8bbd8;
-        --panel: #132849;
-        --line: #233d65;
-        --accent: #4b89f5;
-        --accent-soft: #1d3965;
-        background: #0c1932;
+        background: var(--sidebar);
     }
 
     .settings-page-header {
@@ -2135,37 +2231,37 @@ st.markdown(
     }
 
     .stApp:has(.dashboard-root) [data-testid="stSidebar"] {
-        --sidebar: #0c1932;
-        --ink: #edf4ff;
-        --muted: #a8bbd8;
-        --panel: #132849;
-        --line: #233d65;
-        --accent: #4b89f5;
-        --accent-soft: #1d3965;
-        background: #0c1932;
+        background: var(--sidebar);
     }
 
     .dashboard-system-score {
         display: inline-flex;
+        width: auto;
+        max-width: 100%;
+        box-sizing: border-box;
         align-items: center;
         gap: .45rem;
-        margin: -.55rem .35rem 1.15rem;
-        padding: .4rem .7rem;
-        border: 1px solid #214d3d;
+        margin: .35rem .2rem .8rem;
+        padding: .38rem .65rem;
+        border: 1px solid var(--safe-line);
         border-radius: 999px;
-        background: #102b2d;
-        color: #b6e6c1;
-        font-size: .73rem;
-        font-weight: 650;
+        background: var(--safe-bg);
+        color: var(--safe-text);
+        font-size: .78rem;
+        font-weight: 750;
     }
 
     .dashboard-system-score strong {
-        color: #73d784;
+        margin-left: .1rem;
+        color: var(--safe-text);
+        font-size: .84rem;
+        font-weight: 750;
     }
 
     .dashboard-system-dot {
-        width: .55rem;
-        height: .55rem;
+        width: .58rem;
+        height: .58rem;
+        flex: 0 0 .58rem;
         border-radius: 50%;
         background: #61d274;
         box-shadow: 0 0 8px rgba(97, 210, 116, .55);
@@ -2357,10 +2453,10 @@ st.markdown(
         font-size: 1.45rem;
     }
 
-    .dashboard-kpi-icon.blue { background: #e6efff; color: #3974e6; }
-    .dashboard-kpi-icon.green { background: #e4f6e9; color: #45a95c; }
-    .dashboard-kpi-icon.amber { background: #fff4d8; color: #d7a721; }
-    .dashboard-kpi-icon.red { background: #ffebeb; color: #d94d4d; }
+    .dashboard-kpi-icon.blue { background: var(--accent-soft); color: var(--accent); }
+    .dashboard-kpi-icon.green { background: var(--safe-bg); color: var(--safe-text); }
+    .dashboard-kpi-icon.amber { background: var(--warn-bg); color: var(--warn-text); }
+    .dashboard-kpi-icon.red { background: var(--danger-bg); color: var(--danger-text); }
 
     .dashboard-kpi-copy {
         min-width: 0;
@@ -2414,7 +2510,7 @@ st.markdown(
         border-radius: 50%;
         background: conic-gradient(
             #51b45d 0deg var(--score-angle),
-            #e8edf4 var(--score-angle) 360deg
+            var(--neutral-bg) var(--score-angle) 360deg
         );
     }
 
@@ -2594,7 +2690,7 @@ st.markdown(
 
     .stApp:has(.global-header-controls-root) .st-key-global-header-controls {
         position: fixed;
-        top: .35rem;
+        top: 1.3rem;
         right: 1rem;
         z-index: 1000000;
         width: min(17rem, calc(100vw - 1rem));
@@ -2671,7 +2767,7 @@ st.markdown(
         font-size: .62rem;
         font-weight: 800;
         line-height: 1;
-        box-shadow: 0 0 0 2px var(--bg);
+        box-shadow: 0 0 0 2px var(--page);
     }
 
     .stApp:has(.global-header-controls-root) .st-key-global-workspace [data-testid="stPopoverButton"] {
@@ -2702,22 +2798,28 @@ st.markdown(
         letter-spacing: .02em;
     }
 
-    .stApp:has(.global-header-controls-root) [data-testid="stPopoverBody"] {
+    body:has(.global-header-controls-root) [data-testid="stPopoverBody"] {
         min-width: 19rem;
         max-width: min(27rem, 90vw);
         border: 1px solid var(--line);
         border-radius: 12px;
         background: var(--panel);
+        color: var(--ink);
         box-shadow: 0 14px 36px rgba(0, 0, 0, .28);
     }
 
-    .stApp:has(.global-header-controls-root) [data-testid="stPopoverBody"] [data-testid="stMarkdownContainer"] {
-        color: var(--ink);
+    body:has(.global-header-controls-root) [data-testid="stPopoverBody"] [data-testid="stMarkdownContainer"],
+    body:has(.global-header-controls-root) [data-testid="stPopoverBody"] [data-testid="stCaptionContainer"] {
+        color: var(--ink) !important;
     }
 
-    .stApp:has(.global-header-controls-root) [data-testid="stPopoverBody"] [data-testid="stButton"] > button {
+    body:has(.global-header-controls-root) [data-testid="stPopoverBody"] [data-testid="stButton"] > button {
         min-height: 2.2rem;
         border-radius: 7px;
+    }
+
+    body:has(.global-header-controls-root) [data-testid="stPopoverBody"] .st-key-notifications-clear-all button {
+        border-color: var(--notification-action-line) !important;
     }
 
     .stApp:has(.global-header-controls-root) .dashboard-header-tools,
@@ -2757,7 +2859,7 @@ st.markdown(
 
     @media (max-width: 700px) {
         .stApp:has(.global-header-controls-root) .st-key-global-header-controls {
-            top: .2rem;
+            top: 1.3rem;
             right: .35rem;
             width: min(17rem, calc(100vw - .7rem));
         }
@@ -2766,7 +2868,7 @@ st.markdown(
             max-width: min(13rem, calc(100vw - 4.5rem));
         }
 
-        .stApp:has(.global-header-controls-root) [data-testid="stPopoverBody"] {
+        body:has(.global-header-controls-root) [data-testid="stPopoverBody"] {
             min-width: min(19rem, 88vw);
         }
     }
@@ -2819,7 +2921,7 @@ def human_size(size: int) -> str:
 def refresh_download_activity_history() -> tuple[
     str, dict[str, dict[str, object]]
 ]:
-    """Refresh the opt-in folder snapshot and persist alerts for new activity."""
+    """Refresh the opt-in folder snapshot and its local activity history."""
     if not LOCAL_DOWNLOAD_MONITOR_ENABLED:
         return "", {}
 
@@ -2846,35 +2948,12 @@ def refresh_download_activity_history() -> tuple[
     snapshots[folder_key] = current_snapshot
     histories[folder_key] = folder_history
 
-    if get_app_setting("alert_file_activity", "false") == "true":
-        for filename, record in folder_history.items():
-            state = str(record["state"])
-            if state not in {
-                "Writing",
-                "Recently detected",
-                "Temporary download file",
-            }:
-                continue
-            fingerprint = (
-                f"{folder_key}|{filename}|{record['modified_at']}|"
-                f"{record['size_bytes']}"
-            )
-            notification_id = hashlib.sha256(
-                fingerprint.encode("utf-8")
-            ).hexdigest()
-            record_workspace_notification(
-                f"File activity: {filename}",
-                f"{state} · {human_size(int(record['size_bytes']))}",
-                "File Activity Monitor",
-                notification_id=f"download-{notification_id}",
-            )
     return folder_key, folder_history
 
 
 @st.fragment(run_every="5s")
 def render_global_header_controls() -> None:
     """Render the shared notification center and local workspace profile."""
-    monitoring_error = None
     if (
         LOCAL_DOWNLOAD_MONITOR_ENABLED
         and st.session_state.get("local_download_monitor_enabled", False)
@@ -2882,12 +2961,11 @@ def render_global_header_controls() -> None:
         try:
             refresh_download_activity_history()
         except OSError as error:
-            monitoring_error = f"Could not monitor this folder: {error}"
-            st.session_state.download_monitor_error = monitoring_error
+            st.session_state.download_monitor_error = (
+                f"Could not monitor this folder: {error}"
+            )
         else:
             st.session_state.pop("download_monitor_error", None)
-    if monitoring_error is None:
-        monitoring_error = st.session_state.get("download_monitor_error")
 
     notifications: list[dict[str, str]] = []
     events_setting = get_app_setting("notification_events", "[]")
@@ -2920,6 +2998,20 @@ def render_global_header_controls() -> None:
                 f"Saved notification has an unknown destination: "
                 f"{event['destination']}"
             )
+        if event["title"] == "Settings updated":
+            if (
+                event["destination"] != "Settings"
+                or "theme" in event["detail"].casefold()
+            ):
+                continue
+        elif event["title"] == "User directory updated":
+            if (
+                event["destination"] != "User Management"
+                or "removed" in event["detail"].casefold()
+            ):
+                continue
+        else:
+            continue
         notifications.append(
             {
                 "id": event["id"],
@@ -2942,16 +3034,12 @@ def render_global_header_controls() -> None:
             for scan in recent_scans.itertuples(index=False):
                 score = int(scan.score)
                 verdict = str(scan.verdict)
-                if score >= 50 or verdict in {"Malicious", "High risk"}:
-                    title = f"High-risk scan: {scan.filename}"
-                elif score >= 15 or verdict in {"Suspicious", "Review needed"}:
-                    title = f"Scan needs review: {scan.filename}"
-                else:
+                if score < 50 and verdict not in {"Malicious", "High risk"}:
                     continue
                 notifications.append(
                     {
                         "id": f"scan-{int(scan.id)}",
-                        "title": title,
+                        "title": f"High-risk scan: {scan.filename}",
                         "detail": (
                             f"{verdict} · Risk score {score}/100 · {scan.scan_date}"
                         ),
@@ -2964,7 +3052,37 @@ def render_global_header_controls() -> None:
         key=lambda notification: notification["created_at"],
         reverse=True,
     )
-    notifications = notifications[:50]
+    all_notifications = notifications
+    dismissed_setting = get_app_setting("notification_dismissed_ids", "[]")
+    try:
+        saved_dismissed_ids = json.loads(dismissed_setting)
+    except json.JSONDecodeError as error:
+        raise ValueError(
+            "Saved notification dismissed state is not valid JSON."
+        ) from error
+    if not isinstance(saved_dismissed_ids, list) or any(
+        not isinstance(notification_id, str)
+        for notification_id in saved_dismissed_ids
+    ):
+        raise ValueError(
+            "Saved notification dismissed state must contain string IDs."
+        )
+    dismissed_ids = set(saved_dismissed_ids)
+    all_notification_ids = {
+        notification["id"] for notification in all_notifications
+    }
+    previous_dismissed_ids = set(dismissed_ids)
+    dismissed_ids.intersection_update(all_notification_ids)
+    if dismissed_ids != previous_dismissed_ids:
+        set_app_setting(
+            "notification_dismissed_ids",
+            json.dumps(sorted(dismissed_ids)),
+        )
+    notifications = [
+        notification
+        for notification in all_notifications
+        if notification["id"] not in dismissed_ids
+    ][:50]
     read_setting = get_app_setting("notification_read_ids", "[]")
     try:
         saved_read_ids = json.loads(read_setting)
@@ -3052,34 +3170,55 @@ def render_global_header_controls() -> None:
                                 f'**{escape(notification["title"])}**  \n'
                                 f'{escape(notification["detail"])}'
                             )
-                        if st.button(
-                            f'Review · {notification["destination"]}',
-                            key=f'notification-open-{notification["id"]}',
-                        ):
-                            read_ids.add(notification["id"])
-                            set_app_setting(
-                                "notification_read_ids",
-                                json.dumps(sorted(read_ids)),
-                            )
-                            st.session_state.selected_section = notification[
-                                "destination"
-                            ]
-                            st.rerun()
+                        st.caption(
+                            f'Tab: {escape(notification["destination"])}'
+                        )
                         st.divider()
                 else:
                     st.info(
-                        "No recent alerts. New scan findings, monitored file activity, "
-                        "and workspace changes will appear here."
+                        "No recent high-risk scans, settings changes, or user "
+                        "directory updates."
                     )
-                if monitoring_error:
-                    st.error(monitoring_error)
                 if st.button(
-                    "Open Audit History",
-                    key="notifications-open-history",
+                    "Clear All Notifications",
+                    key="notifications-clear-all",
                     use_container_width=True,
+                    disabled=not notifications,
                 ):
-                    st.session_state.selected_section = "Audit History"
-                    st.rerun()
+                    st.session_state.notifications_clear_confirmation = True
+
+                if st.session_state.get(
+                    "notifications_clear_confirmation",
+                    False,
+                ):
+                    st.warning(
+                        "Clear all notifications? This cannot be undone."
+                    )
+                    confirm_column, cancel_column = st.columns(2)
+                    if confirm_column.button(
+                        "Confirm clear",
+                        key="notifications-confirm-clear",
+                        type="primary",
+                        use_container_width=True,
+                    ):
+                        dismissed_ids.update(all_notification_ids)
+                        set_app_setting(
+                            "notification_dismissed_ids",
+                            json.dumps(sorted(dismissed_ids)),
+                        )
+                        read_ids.difference_update(all_notification_ids)
+                        set_app_setting(
+                            "notification_read_ids",
+                            json.dumps(sorted(read_ids)),
+                        )
+                        st.session_state.notifications_clear_confirmation = False
+                        st.rerun()
+                    if cancel_column.button(
+                        "Cancel",
+                        key="notifications-cancel-clear",
+                        use_container_width=True,
+                    ):
+                        st.session_state.notifications_clear_confirmation = False
 
         with workspace_column:
             with st.popover(
@@ -3108,11 +3247,6 @@ def render_global_header_controls() -> None:
                         st.error("Workspace name cannot be empty.")
                     elif cleaned_name != organization_name:
                         set_app_setting("organization_name", cleaned_name)
-                        record_workspace_notification(
-                            "Workspace profile updated",
-                            "The local workspace name was changed.",
-                            "Settings",
-                        )
                         st.rerun()
                 for label, destination, key in (
                     ("Settings", "Settings", "workspace-open-settings"),
@@ -3647,6 +3781,14 @@ def render_weekly_scan_chart(daily_metrics):
             ],
         )
         .properties(height=220)
+        .configure(background="transparent")
+        .configure_axis(
+            labelColor=theme_colors["muted"],
+            domainColor=theme_colors["line"],
+            tickColor=theme_colors["line"],
+            gridColor=theme_colors["line"],
+        )
+        .configure_view(stroke=theme_colors["line"])
     )
     st.altair_chart(chart, width="stretch")
 
@@ -3735,9 +3877,10 @@ with st.sidebar:
     )
     st.markdown('<div class="side-label">Appearance</div>', unsafe_allow_html=True)
     st.toggle(
-        "Light mode",
-        key="light_mode",
-        help="Switch between the navy dark theme and light theme.",
+        "Dark mode",
+        value=not st.session_state.light_mode,
+        key="dark_mode",
+        help="Switch the entire app between light and dark themes.",
         on_change=save_theme_preference,
     )
     st.markdown('<div class="side-label">Workspace</div>', unsafe_allow_html=True)
@@ -3753,21 +3896,20 @@ with st.sidebar:
     elif st.session_state.selected_section == "Detection Rules":
         st.session_state.selected_section = "Threat Detection"
 
-    if st.session_state.selected_section in {"Dashboard", "Threat Detection"}:
-        score_label = (
-            f"{dashboard_security_score}%" if dashboard_total_scans else "—"
-        )
-        st.markdown(
-            f"""
-            <div class="dashboard-system-score"
-                 title="Clean scan rate from {dashboard_total_scans:,} saved scans">
-                <span class="dashboard-system-dot"></span>
-                <span>Scan health</span>
-                <strong>{score_label}</strong>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+    score_label = (
+        f"{dashboard_security_score}%" if dashboard_total_scans else "—"
+    )
+    st.markdown(
+        f"""
+        <div class="dashboard-system-score"
+             title="Clean scan rate from {dashboard_total_scans:,} saved scans">
+            <span class="dashboard-system-dot"></span>
+            <span>Security Score</span>
+            <strong>{score_label}</strong>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     navigation_items = [
         ("⌂", "Dashboard"),
@@ -3820,7 +3962,7 @@ if selected_section == "Dashboard":
         <div class="dashboard-header">
             <div>
                 <h1 class="dashboard-title">Welcome to LiteAudit!</h1>
-                <p class="dashboard-subtitle">Monitor. Detect. Stay Secure.</p>
+                <p class="dashboard-subtitle">Monitor. Detect. Secure.</p>
             </div>
             <div class="dashboard-header-tools">
                 <span class="dashboard-alert" title="{threat_count:,} flagged scans">
@@ -3877,8 +4019,8 @@ if selected_section == "Dashboard":
     metric_cards = [
         ("▤", "blue", dashboard_total_scans, "Files Scanned"),
         ("✓", "green", dashboard_clean_scans, "Clean"),
-        ("▲", "amber", dashboard_review_scans, "Suspicious"),
-        ("☣", "red", dashboard_malicious_scans, "Malicious"),
+        ("?", "amber", dashboard_review_scans, "Suspicious"),
+        ("!!!", "red", dashboard_malicious_scans, "Malicious"),
     ]
     metric_markup = "".join(
         f'<div class="dashboard-kpi"><div class="dashboard-kpi-icon {tone}" '
@@ -3989,7 +4131,10 @@ elif selected_section == "File Scanner":
                 type=["pdf", "csv", "doc", "txt"],
                 label_visibility="collapsed",
                 accept_multiple_files=True,
-                key="scanner_uploaded_files",
+                key=(
+                    "scanner_uploaded_files_"
+                    f"{st.session_state.get('scanner_upload_generation', 0)}"
+                ),
                 help=(
                     "Supported files: PDF, CSV, DOC, TXT. Maximum file size: "
                     f"{MAX_FILE_SIZE_MB} MiB."
@@ -4053,13 +4198,6 @@ elif selected_section == "File Scanner":
                     "content in text files. Attachments are not extracted."
                 ),
             )
-            st.checkbox(
-                "Include archive files (.zip)",
-                value=False,
-                disabled=True,
-                key="scan_include_archives",
-                help="Archive scanning is not supported. Extract and scan supported files individually.",
-            )
             scan_clicked = st.button(
                 "▶  Start Scan",
                 type="primary",
@@ -4118,6 +4256,9 @@ elif selected_section == "File Scanner":
             if completed_scans:
                 st.session_state.last_scan_result = last_scan_result
                 st.session_state.scanner_view_scan_id = None
+                st.session_state.scanner_upload_generation = (
+                    st.session_state.get("scanner_upload_generation", 0) + 1
+                )
                 st.session_state.scanner_scan_notice = (
                     f"Scanned {completed_scans} file(s) successfully."
                 )
@@ -5006,13 +5147,7 @@ elif selected_section == "User Management":
                 key="confirm-delete-user",
                 type="primary",
             ):
-                deleted_users = delete_users([int(confirm_delete_id)])
-                if deleted_users:
-                    record_workspace_notification(
-                        "User directory updated",
-                        "A user entry was removed from the local directory.",
-                        "User Management",
-                    )
+                delete_users([int(confirm_delete_id)])
                 st.session_state.pop("confirm_delete_user_id", None)
                 st.rerun()
             if cancel_col.button("Cancel", key="cancel-delete-user"):
@@ -5196,20 +5331,6 @@ elif selected_section == "Settings":
                         st.success("Settings saved.")
                         st.rerun()
 
-                theme_label, theme_choice_column = st.columns([.82, 1.18])
-                theme_label.markdown(
-                    '<div class="settings-field-label">Theme</div>',
-                    unsafe_allow_html=True,
-                )
-                theme_choice_column.radio(
-                    "Theme",
-                    ["Light Mode", "Dark Mode"],
-                    index=0 if st.session_state.light_mode else 1,
-                    horizontal=True,
-                    label_visibility="collapsed",
-                    key="settings-theme-choice",
-                    on_change=save_settings_theme_preference,
-                )
                 st.caption(
                     "Retention is a cleanup target only. Expired records are never "
                     "removed automatically; review them in Database settings."
