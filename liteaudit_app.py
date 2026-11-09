@@ -53,7 +53,7 @@ from database import (
     update_user,
 )
 from download_monitor import scan_download_folder, update_download_history
-
+from scanner import scan_document
 
 def delete_scans(scan_ids: list[int]) -> int:
     """Delete selected scan records and clear cached query results."""
@@ -2882,18 +2882,6 @@ LOCAL_DOWNLOAD_MONITOR_ENABLED = (
     os.environ.get("LITEAUDIT_ENABLE_LOCAL_DOWNLOAD_MONITOR") == "1"
 )
 
-# Byte signatures used to flag common document and script indicators.
-SIGNATURES = [
-    (rb"/JavaScript\b|/JS\b", "Embedded JavaScript action", 35),
-    (rb"/OpenAction\b|/AA\b", "Automatic document action", 25),
-    (rb"/Launch\b", "External launch instruction", 35),
-    (rb"/EmbeddedFile\b|/Filespec\b", "Embedded file payload", 20),
-    (rb"/URI\s*\(", "External URI action", 10),
-    (rb"<script\b|javascript\s*:", "Script injection pattern", 35),
-    (rb"powershell(?:\.exe)?|cmd(?:\.exe)?|/bin/(?:ba)?sh", "Shell command reference", 30),
-    (rb"eval\s*\(|exec\s*\(", "Dynamic code execution pattern", 25),
-    (rb"(?:https?|ftp)://[^\s<>'\"]+", "External network reference", 8),
-]
 
 INDICATOR_EXPLANATIONS = {
     "Embedded JavaScript action": "Finds PDF markers that can attach JavaScript to a document, which may run when the document is opened or interacted with.",
@@ -2905,6 +2893,7 @@ INDICATOR_EXPLANATIONS = {
     "Shell command reference": "Finds references to command shells that could be used to run system commands.",
     "Dynamic code execution pattern": "Finds calls commonly associated with evaluating or executing code dynamically.",
     "External network reference": "Finds a URL that may cause a document or related content to connect to an external server.",
+    "Spreadsheet formula injection pattern": "Finds CSV cells that spreadsheet programs may run as formulas, which can be used to launch commands or leak data.",
 }
 
 
@@ -3266,83 +3255,6 @@ def render_global_header_controls() -> None:
                         st.rerun()
 
 
-def scan_document(
-    file_name: str,
-    data: bytes,
-    check_signatures: bool = True,
-    check_injections: bool = True,
-    check_file_integrity: bool = True,
-) -> dict:
-    """Check file bytes for known indicators and return a simple risk report."""
-    findings: list[dict] = []
-    score = 0
-
-    if check_signatures or check_injections:
-        for pattern, label, weight in SIGNATURES:
-            if label == "Embedded file payload":
-                continue
-            is_injection_indicator = label in {
-                "Script injection pattern",
-                "Dynamic code execution pattern",
-            }
-            if is_injection_indicator and not check_injections:
-                continue
-            if not is_injection_indicator and not check_signatures:
-                continue
-            count = len(re.findall(pattern, data, flags=re.IGNORECASE))
-            if count:
-                findings.append({"indicator": label, "matches": count, "weight": weight})
-                score += min(weight + max(0, count - 1) * 2, weight + 10)
-
-    if check_file_integrity:
-        extension = Path(file_name).suffix.lower()
-        if extension == ".pdf":
-            embedded_count = len(
-                re.findall(rb"/EmbeddedFile\b|/Filespec\b", data, flags=re.IGNORECASE)
-            )
-            if embedded_count:
-                findings.append(
-                    {
-                        "indicator": "Embedded file payload",
-                        "matches": embedded_count,
-                        "weight": 20,
-                    }
-                )
-                score += min(20 + max(0, embedded_count - 1) * 2, 30)
-        if extension == ".pdf" and not data.startswith(b"%PDF-"):
-            findings.append(
-                {
-                    "indicator": "File extension and header do not match",
-                    "matches": 1,
-                    "weight": 40,
-                }
-            )
-            score += 40
-        if extension == ".txt" and b"\x00" in data:
-            findings.append(
-                {
-                    "indicator": "Unexpected binary content in text file",
-                    "matches": 1,
-                    "weight": 20,
-                }
-            )
-            score += 20
-
-    score = min(score, 100)
-    if score >= 50:
-        verdict, tone = "High risk", "danger"
-    elif score >= 15:
-        verdict, tone = "Review needed", "warn"
-    else:
-        verdict, tone = "No known indicators", "safe"
-
-    return {
-        "verdict": verdict,
-        "tone": tone,
-        "score": score,
-        "findings": findings,
-        "sha256": hashlib.sha256(data).hexdigest(),
-    }
 
 
 def build_analytics_pdf(
