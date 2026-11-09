@@ -53,7 +53,7 @@ from database import (
     update_user,
 )
 from download_monitor import scan_download_folder, update_download_history
-from scanner import scan_document
+
 
 def delete_scans(scan_ids: list[int]) -> int:
     """Delete selected scan records and clear cached query results."""
@@ -159,6 +159,12 @@ def save_theme_preference() -> None:
     saved_theme = get_app_setting("theme", "light")
     if selected_theme != saved_theme:
         set_app_setting("theme", selected_theme)
+
+
+def save_scan_option(option_key: str, widget_key: str) -> None:
+    """Persist a scan option when its checkbox changes."""
+    value = "true" if st.session_state[widget_key] else "false"
+    set_app_setting(f"scan_option_{option_key}", value)
 
 
 def save_download_monitor_settings() -> None:
@@ -1040,6 +1046,29 @@ st.markdown(
         box-shadow: 0 5px 16px rgba(13, 46, 92, .07);
     }
 
+    .stApp:has(.file-scanner-root) .st-key-file-options-card {
+        height: 20.65rem;
+        max-height: 20.65rem;
+        box-sizing: border-box;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        scrollbar-gutter: stable;
+    }
+
+    @media (max-width: 1100px) {
+        .stApp:has(.file-scanner-root) .st-key-file-options-card {
+            height: 23.4rem;
+            max-height: 23.4rem;
+        }
+    }
+
+    @media (max-width: 950px) {
+        .stApp:has(.file-scanner-root) .st-key-file-options-card {
+            height: 24.6rem;
+            max-height: 24.6rem;
+        }
+    }
+
     .file-scanner-upload-heading {
         margin: 0 0 .25rem;
         color: var(--ink);
@@ -1368,24 +1397,83 @@ st.markdown(
         background: var(--panel-2);
     }
 
-    .stApp:has(.threat-detection-root) [class*="st-key-threat-select-"] {
+    .stApp:has(.threat-detection-root) [class*="st-key-threat-file-select-"] {
         margin: .2rem 0;
     }
 
-    .stApp:has(.threat-detection-root) [class*="st-key-threat-select-"] button {
-        min-height: 3.8rem;
+    .stApp:has(.threat-detection-root) [class*="st-key-threat-file-select-"] button {
+        min-height: 0;
+        flex-direction: column;
         justify-content: flex-start;
+        align-items: flex-start;
+        gap: .15rem;
+        padding: .5rem .65rem;
         border: 1px solid transparent;
         border-left: 3px solid transparent;
-        border-radius: 8px;
+        border-radius: 9px;
         background: transparent;
         color: var(--ink);
         text-align: left;
         white-space: pre-line;
+        line-height: 1.45;
         box-shadow: none;
+        transition: background .15s ease, border-color .15s ease;
     }
 
-    .stApp:has(.threat-detection-root) [class*="st-key-threat-select-"] button:hover {
+    .stApp:has(.threat-detection-root) [class*="st-key-threat-file-select-"] button > div {
+        display: flex;
+        width: 100%;
+        flex-direction: column;
+        align-items: flex-start;
+        text-align: left;
+    }
+
+    .stApp:has(.threat-detection-root) [class*="st-key-threat-file-select-"] button p {
+        width: 100%;
+        margin: 0;
+        text-align: left;
+    }
+
+    .stApp:has(.threat-detection-root) [class*="st-key-threat-file-select-high-"] button::after,
+    .stApp:has(.threat-detection-root) [class*="st-key-threat-file-select-medium-"] button::after,
+    .stApp:has(.threat-detection-root) [class*="st-key-threat-file-select-low-"] button::after {
+        display: block;
+        width: fit-content;
+        margin-top: .2rem;
+        padding: .12rem .52rem;
+        border: 1px solid transparent;
+        border-radius: 999px;
+        font-size: .73rem;
+        font-weight: 700;
+        line-height: 1.35;
+        content: "";
+    }
+
+    .stApp:has(.threat-detection-root) [class*="st-key-threat-file-select-high-"] button::after {
+        border-color: color-mix(in srgb, var(--danger-text) 20%, transparent);
+        background: var(--danger-bg);
+        color: var(--danger-text);
+        content: "High";
+        box-shadow: 0 2px 8px color-mix(in srgb, var(--danger-text) 18%, transparent);
+    }
+
+    .stApp:has(.threat-detection-root) [class*="st-key-threat-file-select-medium-"] button::after {
+        border-color: color-mix(in srgb, var(--warn-text) 20%, transparent);
+        background: var(--warn-bg);
+        color: var(--warn-text);
+        content: "Medium";
+        box-shadow: 0 2px 8px color-mix(in srgb, var(--warn-text) 18%, transparent);
+    }
+
+    .stApp:has(.threat-detection-root) [class*="st-key-threat-file-select-low-"] button::after {
+        border-color: color-mix(in srgb, var(--safe-text) 20%, transparent);
+        background: var(--safe-bg);
+        color: var(--safe-text);
+        content: "Low";
+        box-shadow: 0 2px 8px color-mix(in srgb, var(--safe-text) 18%, transparent);
+    }
+
+    .stApp:has(.threat-detection-root) [class*="st-key-threat-file-select-"] button:hover {
         border-color: var(--line);
         border-left-color: var(--accent);
         background: var(--panel-2);
@@ -1393,7 +1481,7 @@ st.markdown(
         box-shadow: none;
     }
 
-    .stApp:has(.threat-detection-root) [class*="st-key-threat-select-active-"] button {
+    .stApp:has(.threat-detection-root) [class*="st-key-threat-file-select-"][class*="-active-"] button {
         border-color: var(--line);
         border-left-color: #e34747;
         background: var(--accent-soft);
@@ -1473,6 +1561,12 @@ st.markdown(
         color: var(--safe-text);
     }
 
+    .threat-alert-card.warn {
+        border-color: var(--warn-line);
+        background: var(--warn-bg);
+        color: var(--warn-text);
+    }
+
     .threat-alert-icon {
         flex: 0 0 auto;
         font-size: 1.65rem;
@@ -1523,6 +1617,9 @@ st.markdown(
         border-radius: 50%;
         background: #df4c4c;
     }
+
+    .threat-indicator-dot.warn { background: #d7a721; }
+    .threat-indicator-dot.safe { background: #45a95c; }
 
     .threat-meta-grid {
         display: grid;
@@ -2882,6 +2979,124 @@ LOCAL_DOWNLOAD_MONITOR_ENABLED = (
     os.environ.get("LITEAUDIT_ENABLE_LOCAL_DOWNLOAD_MONITOR") == "1"
 )
 
+# Byte signatures used to flag common document and script indicators.
+SIGNATURES = [
+    (
+        rb"/JavaScript\b|/JS\b",
+        "Embedded JavaScript action",
+        35,
+        "embedded_javascript",
+    ),
+    (
+        rb"/OpenAction\b|/AA\b",
+        "Automatic document action",
+        25,
+        "automatic_document_action",
+    ),
+    (
+        rb"/Launch\b",
+        "External launch instruction",
+        35,
+        "external_launch_instruction",
+    ),
+    (rb"/URI\s*\(", "External URI action", 10, "external_uri_action"),
+    (
+        rb"<script\b|javascript\s*:",
+        "Script injection pattern",
+        35,
+        "script_injection",
+    ),
+    (
+        rb"\b(?:"
+        rb"cmd(?:\.exe)?\s+/(?:c|k)\b|"
+        rb"(?:powershell|pwsh)(?:\.exe)?\s+-(?:command|encodedcommand|file)\b|"
+        rb"(?:/bin/)?(?:bash|sh|zsh|dash)\s+-c\b"
+        rb")",
+        "Command execution pattern",
+        35,
+        "command_execution",
+    ),
+    (
+        rb"eval\s*\(|exec\s*\(",
+        "Dynamic code execution pattern",
+        25,
+        "dynamic_code_execution",
+    ),
+    (
+        rb"(?:https?|ftp)://[^\s<>'\"]+",
+        "External network reference",
+        8,
+        "external_network_reference",
+    ),
+]
+
+SCAN_OPTIONS = {
+    "embedded_javascript": (
+        "PDF checks",
+        "Embedded JavaScript actions",
+        "Looks for PDF markers that associate JavaScript with a document action. "
+        "A match is a review signal; it does not prove the script is malicious.",
+    ),
+    "automatic_document_action": (
+        "PDF checks",
+        "Automatic document actions",
+        "Looks for PDF actions that can be triggered when a document opens or "
+        "when a document event occurs.",
+    ),
+    "external_launch_instruction": (
+        "PDF checks",
+        "External launch instructions",
+        "Looks for PDF launch markers that may reference an external application "
+        "or file. The app does not launch it.",
+    ),
+    "external_uri_action": (
+        "PDF checks",
+        "External URI actions",
+        "Looks for PDF URI-action markers that may point to a website or other "
+        "external resource.",
+    ),
+    "script_injection": (
+        "Script and command patterns",
+        "Script injection patterns",
+        "Looks for HTML script tags or JavaScript URL syntax that can indicate "
+        "script-like content embedded in a file.",
+    ),
+    "command_execution": (
+        "Script and command patterns",
+        "Command execution patterns",
+        "Looks for command-shell names paired with execution switches, such as "
+        "cmd /c, PowerShell -Command, or bash -c. Shell names alone do not match.",
+    ),
+    "dynamic_code_execution": (
+        "Script and command patterns",
+        "Dynamic code execution patterns",
+        "Looks for eval() or exec() calls, which can run code assembled at "
+        "runtime in some languages.",
+    ),
+    "external_network_reference": (
+        "Network references",
+        "External network references",
+        "Looks for HTTP, HTTPS, or FTP URLs. A URL may be benign and is not proof "
+        "that a file connects to it.",
+    ),
+    "embedded_files": (
+        "File-format checks",
+        "Embedded file markers",
+        "Looks for PDF markers associated with attachments or embedded files. "
+        "The app does not extract or scan the attachment contents.",
+    ),
+    "pdf_header_mismatch": (
+        "File-format checks",
+        "PDF header and extension mismatch",
+        "Checks whether a file named as a PDF begins with the expected PDF header.",
+    ),
+    "text_binary_content": (
+        "File-format checks",
+        "Unexpected binary content in text files",
+        "Checks TXT files for null bytes, which can indicate binary or malformed "
+        "content rather than ordinary text.",
+    ),
+}
 
 INDICATOR_EXPLANATIONS = {
     "Embedded JavaScript action": "Finds PDF markers that can attach JavaScript to a document, which may run when the document is opened or interacted with.",
@@ -2890,10 +3105,13 @@ INDICATOR_EXPLANATIONS = {
     "Embedded file payload": "Finds PDF markers associated with files attached or embedded inside the document.",
     "External URI action": "Finds a PDF action that points to a URI, such as a web address.",
     "Script injection pattern": "Finds HTML or script-like text that may indicate embedded or injected executable content.",
-    "Shell command reference": "Finds references to command shells that could be used to run system commands.",
+    "Shell command reference": "Legacy finding for files that mention a command shell.",
+    "Command execution pattern": (
+        "Finds command shell invocations with execution switches, such as cmd /c, "
+        "PowerShell -Command, or bash -c."
+    ),
     "Dynamic code execution pattern": "Finds calls commonly associated with evaluating or executing code dynamically.",
     "External network reference": "Finds a URL that may cause a document or related content to connect to an external server.",
-    "Spreadsheet formula injection pattern": "Finds CSV cells that spreadsheet programs may run as formulas, which can be used to launch commands or leak data.",
 }
 
 
@@ -3255,6 +3473,81 @@ def render_global_header_controls() -> None:
                         st.rerun()
 
 
+def scan_document(
+    file_name: str,
+    data: bytes,
+    scan_options: dict[str, bool] | None = None,
+) -> dict:
+    """Check file bytes for enabled indicators and return a simple risk report."""
+    findings: list[dict] = []
+    score = 0
+
+    enabled_options = scan_options or {}
+    extension = Path(file_name).suffix.lower()
+
+    for pattern, label, weight, option_key in SIGNATURES:
+        if not enabled_options.get(option_key, True):
+            continue
+        count = len(re.findall(pattern, data, flags=re.IGNORECASE))
+        if count:
+            findings.append({"indicator": label, "matches": count, "weight": weight})
+            score += min(weight + max(0, count - 1) * 2, weight + 10)
+
+    if extension == ".pdf" and enabled_options.get("embedded_files", True):
+        embedded_count = len(
+            re.findall(rb"/EmbeddedFile\b|/Filespec\b", data, flags=re.IGNORECASE)
+        )
+        if embedded_count:
+            findings.append(
+                {
+                    "indicator": "Embedded file payload",
+                    "matches": embedded_count,
+                    "weight": 20,
+                }
+            )
+            score += min(20 + max(0, embedded_count - 1) * 2, 30)
+    if (
+        extension == ".pdf"
+        and enabled_options.get("pdf_header_mismatch", True)
+        and not data.startswith(b"%PDF-")
+    ):
+        findings.append(
+            {
+                "indicator": "File extension and header do not match",
+                "matches": 1,
+                "weight": 40,
+            }
+        )
+        score += 40
+    if (
+        extension == ".txt"
+        and enabled_options.get("text_binary_content", True)
+        and b"\x00" in data
+    ):
+        findings.append(
+            {
+                "indicator": "Unexpected binary content in text file",
+                "matches": 1,
+                "weight": 20,
+            }
+        )
+        score += 20
+
+    score = min(score, 100)
+    if score >= 50:
+        verdict, tone = "High risk", "danger"
+    elif score >= 15:
+        verdict, tone = "Review needed", "warn"
+    else:
+        verdict, tone = "No known indicators", "safe"
+
+    return {
+        "verdict": verdict,
+        "tone": tone,
+        "score": score,
+        "findings": findings,
+        "sha256": hashlib.sha256(data).hexdigest(),
+    }
 
 
 def build_analytics_pdf(
@@ -4089,27 +4382,26 @@ elif selected_section == "File Scanner":
                 '<div class="file-scanner-options-heading">Scan Options</div>',
                 unsafe_allow_html=True,
             )
-            check_signatures = st.checkbox(
-                "Scan for malicious scripts",
-                value=True,
-                key="scan_check_signatures",
-                help="Check for document actions, shell references, links, and known static patterns.",
+            st.caption(
+                "Choose which static checks to run. All checks are enabled by default."
             )
-            check_injections = st.checkbox(
-                "Check for injections",
-                value=True,
-                key="scan_check_injections",
-                help="Check for script-injection and dynamic-code execution patterns.",
-            )
-            check_file_integrity = st.checkbox(
-                "Analyze embedded content",
-                value=True,
-                key="scan_check_file_integrity",
-                help=(
-                    "Check PDF headers and embedded-file markers, plus binary "
-                    "content in text files. Attachments are not extracted."
-                ),
-            )
+            scan_options = {}
+            current_scan_group = None
+            for option_key, (group, label, description) in SCAN_OPTIONS.items():
+                if group != current_scan_group:
+                    st.markdown(f"**{group}**")
+                    current_scan_group = group
+                widget_key = f"scan_option_{option_key}"
+                if widget_key not in st.session_state:
+                    saved_value = get_app_setting(widget_key, "true")
+                    st.session_state[widget_key] = saved_value == "true"
+                scan_options[option_key] = st.checkbox(
+                    label,
+                    key=widget_key,
+                    help=description,
+                    on_change=save_scan_option,
+                    args=(option_key, widget_key),
+                )
             scan_clicked = st.button(
                 "▶  Start Scan",
                 type="primary",
@@ -4123,9 +4415,7 @@ elif selected_section == "File Scanner":
         st.success(scan_notice)
 
     if scan_clicked and uploaded_files:
-        if not (
-            check_signatures or check_injections or check_file_integrity
-        ):
+        if not any(scan_options.values()):
             st.error("Enable at least one scan check before starting the scan.")
         else:
             completed_scans = 0
@@ -4144,9 +4434,7 @@ elif selected_section == "File Scanner":
                 result = scan_document(
                     uploaded_file.name,
                     uploaded_bytes,
-                    check_signatures=check_signatures,
-                    check_injections=check_injections,
-                    check_file_integrity=check_file_integrity,
+                    scan_options=scan_options,
                 )
                 scan_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 insert_scan_result(
@@ -4577,13 +4865,12 @@ elif selected_section == "Threat Detection":
                     )
                     is_selected = int(scan.id) == int(selected_id)
                     if st.button(
-                        f"{scan.filename}\n{level}",
+                        str(scan.filename),
                         key=(
-                            f"threat-select-active-{int(scan.id)}"
+                            f"threat-file-select-{level.lower()}-active-{int(scan.id)}"
                             if is_selected
-                            else f"threat-select-{int(scan.id)}"
+                            else f"threat-file-select-{level.lower()}-{int(scan.id)}"
                         ),
-                        type="primary" if is_selected else "secondary",
                         use_container_width=True,
                     ):
                         st.session_state.threat_selected_scan_id = int(scan.id)
@@ -4681,7 +4968,7 @@ elif selected_section == "Threat Detection":
                     )
 
                 with overview_tab:
-                    alert_class = "" if selected_tone != "safe" else "safe"
+                    alert_class = selected_tone
                     alert_icon = (
                         "☣"
                         if selected_tone == "danger"
@@ -4715,7 +5002,7 @@ elif selected_section == "Threat Detection":
                             )
                             indicator_rows.append(
                                 '<div class="threat-indicator-row">'
-                                '<span class="threat-indicator-dot"></span>'
+                                f'<span class="threat-indicator-dot {selected_tone}"></span>'
                                 f'<span title="{escape(explanation, quote=True)}">'
                                 f'{escape(indicator)} · '
                                 f'{int(finding.get("matches", 0))} match(es)'
