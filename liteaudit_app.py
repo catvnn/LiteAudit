@@ -4,6 +4,10 @@ Run with:
     pip install streamlit pandas
     streamlit run liteaudit_app.py
 
+On Windows, start_liteaudit.vbs runs the app and watcher with Python bytecode
+caches under the project's pycache folder. Direct Python commands use their
+normal cache configuration unless PYTHONPYCACHEPREFIX is set separately.
+
 Enable the local Downloads folder monitor only when running LiteAudit on your
 own computer:
     $env:LITEAUDIT_ENABLE_LOCAL_DOWNLOAD_MONITOR = "1"
@@ -32,7 +36,6 @@ import pandas as pd
 import streamlit as st
 
 from database import (
-    delete_users,
     delete_scans_before,
     get_all_scans,
     get_app_setting,
@@ -52,7 +55,13 @@ from database import (
     set_app_setting,
     update_user,
 )
-from download_monitor import scan_download_folder, update_download_history
+from download_monitor import (
+    INCOMPLETE_DOWNLOAD_SUFFIXES,
+    MAX_DOWNLOAD_HISTORY,
+    QUARANTINE_FOLDER,
+    scan_download_folder,
+)
+from monitor_liveness import AppLiveness, register_app
 
 
 def delete_scans(scan_ids: list[int]) -> int:
@@ -167,8 +176,9 @@ def save_scan_option(option_key: str, widget_key: str) -> None:
     set_app_setting(f"scan_option_{option_key}", value)
 
 
-def save_download_monitor_settings() -> None:
+def save_download_monitor_settings(setting_key: str, widget_key: str) -> None:
     """Persist local download-monitor preferences and record real changes."""
+    st.session_state[setting_key] = st.session_state[widget_key]
     enabled = bool(st.session_state.local_download_monitor_enabled)
     folder = str(st.session_state.local_download_folder).strip()
     if not folder:
@@ -177,6 +187,7 @@ def save_download_monitor_settings() -> None:
             "download_monitor_folder",
             str(Path.home() / "Downloads"),
         )
+        st.session_state[widget_key] = st.session_state[setting_key]
         return
 
     saved_enabled = get_app_setting("download_monitor_enabled", "false") == "true"
@@ -194,6 +205,7 @@ def save_download_monitor_settings() -> None:
         changes.append("Monitored folder path updated.")
         set_app_setting("download_monitor_folder", folder)
     if changes:
+        st.session_state.pop("local_quarantine_monitor", None)
         record_settings_change(" ".join(changes))
 
 
@@ -260,7 +272,7 @@ st.markdown(
     .stApp {{
         color-scheme: var(--app-color-scheme) !important;
     }}
-    </style>
+    </style>{'<span class="workspace-dark-theme" hidden></span>' if not st.session_state.light_mode else ''}
     """,
     unsafe_allow_html=True,
 )
@@ -1249,40 +1261,23 @@ st.markdown(
         font-weight: 750;
     }
 
-    .file-scanner-results {
-        overflow: hidden;
+    .stApp:has(.file-scanner-root) .st-key-scan-result-header {
+        padding: .55rem .65rem;
         border: 1px solid var(--line);
         border-radius: 13px;
-        background: var(--panel);
-    }
-
-    .file-scanner-table-header,
-    .file-scanner-table-row {
-        display: grid;
-        grid-template-columns: minmax(135px, 2.1fr) minmax(48px, .65fr)
-            minmax(70px, .8fr) minmax(90px, 1fr) minmax(70px, .8fr) 4rem;
-        gap: .45rem;
-        align-items: center;
-        padding: .55rem .75rem;
-    }
-
-    .file-scanner-table-header {
         background: var(--panel-2);
+    }
+
+    .file-scanner-table-heading {
         color: var(--muted);
         font-size: .69rem;
         font-weight: 750;
     }
 
-    .file-scanner-table-row {
-        min-height: 3rem;
-        border-top: 1px solid var(--line);
-        color: var(--ink);
-        font-size: .79rem;
-    }
-
     .stApp:has(.file-scanner-root) [class*="st-key-scan-result-row-"] {
         padding: .15rem .65rem;
-        border-top: 1px solid var(--line);
+        border: 1px solid transparent;
+        border-top-color: var(--line);
     }
 
     .file-scanner-table-name {
@@ -1329,15 +1324,6 @@ st.markdown(
             grid-template-columns: 1fr;
         }
 
-        .file-scanner-table-header,
-        .file-scanner-table-row {
-            grid-template-columns: minmax(110px, 2fr) minmax(42px, .55fr)
-                minmax(60px, .75fr) minmax(82px, 1fr) minmax(62px, .75fr) 3.6rem;
-            gap: .25rem;
-            padding-right: .45rem;
-            padding-left: .45rem;
-            font-size: .68rem;
-        }
     }
 
     .stApp:has(.threat-detection-root) .block-container {
@@ -1395,6 +1381,49 @@ st.markdown(
     .stApp:has(.threat-detection-root) .st-key-threat-search input {
         border-color: var(--line);
         background: var(--panel-2);
+        color: var(--ink);
+    }
+
+    .stApp:has(.threat-detection-root) .st-key-threat-search input::placeholder {
+        color: var(--muted);
+        opacity: 1;
+    }
+
+    .stApp:has(.workspace-dark-theme):has(.threat-detection-root) .st-key-threat-search .react-aria-TextField > div:has(input) {
+        border-color: #496b98;
+    }
+
+    .stApp:has(.workspace-dark-theme):has(.threat-detection-root) .st-key-threat-search .react-aria-TextField > div:has(input):focus-within {
+        border-color: var(--accent);
+    }
+
+    @media (min-width: 641px) {
+        .stApp:has(.threat-detection-root) [data-testid="stHorizontalBlock"]:has(.st-key-threat-file-list):has(.st-key-threat-detail-panel) {
+            align-items: stretch;
+        }
+
+        .stApp:has(.threat-detection-root) [data-testid="stColumn"]:has(.st-key-threat-file-list) {
+            position: relative;
+        }
+
+        .stApp:has(.threat-detection-root) [data-testid="stColumn"]:has(.st-key-threat-file-list) > [data-testid="stVerticalBlock"] {
+            position: absolute;
+            inset: 0;
+        }
+
+        .stApp:has(.threat-detection-root) [data-testid="stColumn"]:has(.st-key-threat-file-list) > [data-testid="stVerticalBlock"] > [data-testid="stLayoutWrapper"],
+        .stApp:has(.threat-detection-root) .st-key-threat-file-list {
+            height: 100%;
+        }
+
+        .stApp:has(.threat-detection-root) .st-key-threat-file-list > [data-testid="stLayoutWrapper"]:has(.st-key-threat-file-scroll) {
+            flex: 1 1 0;
+            min-height: 0;
+        }
+
+        .stApp:has(.threat-detection-root) .st-key-threat-file-scroll {
+            height: 100% !important;
+        }
     }
 
     .stApp:has(.threat-detection-root) [class*="st-key-threat-file-select-"] {
@@ -1567,6 +1596,58 @@ st.markdown(
         color: var(--warn-text);
     }
 
+    .threat-score-guide {
+        margin-top: 1.25rem;
+        padding: 1.1rem 1.2rem;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: var(--panel);
+        box-shadow: 0 5px 16px rgba(13, 46, 92, .06);
+    }
+
+    .threat-score-guide h2 {
+        margin: 0 0 .85rem;
+        color: var(--ink);
+        font-size: 1.05rem;
+        font-weight: 750;
+    }
+
+    .threat-score-guide-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: .75rem;
+    }
+
+    .threat-score-guide-item {
+        padding: .8rem .9rem;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: var(--panel-2);
+    }
+
+    .threat-score-guide-item strong {
+        display: block;
+        margin-bottom: .3rem;
+        font-size: .9rem;
+    }
+
+    .threat-score-guide-item span {
+        display: block;
+        color: var(--muted);
+        font-size: .8rem;
+        line-height: 1.45;
+    }
+
+    .threat-score-guide-item.safe strong { color: var(--safe-text); }
+    .threat-score-guide-item.warn strong { color: var(--warn-text); }
+    .threat-score-guide-item.danger strong { color: var(--danger-text); }
+
+    @media (max-width: 640px) {
+        .threat-score-guide-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+
     .threat-alert-icon {
         flex: 0 0 auto;
         font-size: 1.65rem;
@@ -1589,6 +1670,10 @@ st.markdown(
         border: 1px solid var(--line);
         border-radius: 11px;
         background: var(--panel-2);
+    }
+
+    .st-key-threat-detail-panel [data-testid="stMarkdownContainer"]:has(.threat-detail-card) {
+        margin-bottom: 0;
     }
 
     .threat-indicator-card h3,
@@ -1692,16 +1777,171 @@ st.markdown(
         gap: .65rem;
     }
 
-    .stApp:has(.audit-history-root) .st-key-history-search input,
+    .stApp:has(.audit-history-root) .st-key-audit-history-filters [data-testid="stHorizontalBlock"] {
+        align-items: center !important;
+        gap: .65rem !important;
+    }
+
+    .stApp:has(.audit-history-root) .st-key-audit-history-filters [data-testid="stColumn"] {
+        align-self: center !important;
+        padding-top: 0 !important;
+        padding-bottom: 0 !important;
+    }
+
+    .stApp:has(.audit-history-root) .st-key-history-search [data-testid="stTextInput"] > div,
+    .stApp:has(.audit-history-root) .st-key-history-result-filter [data-baseweb="select"] > div,
+    .stApp:has(.audit-history-root) .st-key-history-date-filter [data-baseweb="select"] > div {
+        height: 3.2rem;
+        min-height: 3.2rem;
+        border: 1px solid var(--line) !important;
+        border-radius: 9px;
+        background: var(--panel) !important;
+        color: var(--ink) !important;
+        box-shadow: none;
+        box-sizing: border-box !important;
+    }
+
+    .stApp:has(.audit-history-root) .st-key-history-search [data-baseweb="base-input"] {
+        height: 100%;
+        min-height: 0;
+        border: 0 !important;
+        border-radius: inherit;
+        background: var(--panel) !important;
+        box-shadow: none !important;
+    }
+
+    .stApp:has(.audit-history-root) .st-key-history-search [data-baseweb="input"] {
+        height: 100%;
+        min-height: 0;
+        border: 0 !important;
+        border-radius: inherit;
+        background: transparent !important;
+        box-shadow: none !important;
+    }
+
+    .stApp:has(.audit-history-root) .st-key-history-search [data-baseweb="base-input"] *,
+    .stApp:has(.audit-history-root) .st-key-history-search [data-baseweb="input"] * {
+        background: transparent !important;
+        color: var(--ink) !important;
+        box-shadow: none !important;
+    }
+
+    .stApp:has(.audit-history-root) .st-key-history-search [data-testid="stTextInput"] > div * {
+        background: transparent !important;
+    }
+
+    .stApp:has(.audit-history-root) .st-key-history-search input {
+        position: relative;
+        z-index: 1;
+        height: 100%;
+        color: var(--ink) !important;
+        background: transparent !important;
+        border: 0 !important;
+        opacity: 1 !important;
+        box-shadow: none !important;
+        -webkit-text-fill-color: var(--ink) !important;
+        caret-color: var(--accent) !important;
+    }
+
+    .stApp:has(.workspace-dark-theme):has(.audit-history-root) .st-key-history-search input {
+        color: #e8f0ff !important;
+        -webkit-text-fill-color: #e8f0ff !important;
+    }
+
+    .stApp:not(:has(.workspace-dark-theme)):has(.audit-history-root) .st-key-history-search input {
+        color: #102341 !important;
+        -webkit-text-fill-color: #102341 !important;
+    }
+
+    .stApp:has(.audit-history-root) .st-key-history-search [data-testid="stTextInput"] > div:focus-within {
+        border-color: var(--accent) !important;
+        outline: none !important;
+        box-shadow: inset 0 0 0 1px var(--accent) !important;
+    }
+
+    .stApp:has(.audit-history-root) .st-key-history-search input::placeholder {
+        color: var(--muted) !important;
+        -webkit-text-fill-color: var(--muted) !important;
+        opacity: 1;
+    }
+
     .stApp:has(.audit-history-root) .st-key-history-result-filter [data-baseweb="select"],
     .stApp:has(.audit-history-root) .st-key-history-date-filter [data-baseweb="select"] {
         min-height: 3.2rem;
-        border-radius: 9px;
-        background: var(--panel);
+        color: var(--ink) !important;
     }
 
-    .stApp:has(.audit-history-root) .st-key-history-export button {
-        min-height: 3.2rem;
+    .stApp:has(.audit-history-root) .st-key-history-result-filter [data-baseweb="select"] *,
+    .stApp:has(.audit-history-root) .st-key-history-date-filter [data-baseweb="select"] * {
+        color: var(--ink) !important;
+    }
+
+    .stApp:has(.audit-history-root) .st-key-history-result-filter [data-baseweb="select"] > div,
+    .stApp:has(.audit-history-root) .st-key-history-date-filter [data-baseweb="select"] > div,
+    .stApp:has(.audit-history-root) .st-key-history-result-filter [data-baseweb="select"] > div > div,
+    .stApp:has(.audit-history-root) .st-key-history-date-filter [data-baseweb="select"] > div > div {
+        background-color: var(--panel) !important;
+        color: var(--ink) !important;
+    }
+
+    .stApp:has(.audit-history-root) .st-key-history-result-filter [data-baseweb="select"] div,
+    .stApp:has(.audit-history-root) .st-key-history-date-filter [data-baseweb="select"] div {
+        background-color: var(--panel) !important;
+    }
+
+    .stApp:has(.audit-history-root) .st-key-history-result-filter [data-baseweb="select"] svg,
+    .stApp:has(.audit-history-root) .st-key-history-date-filter [data-baseweb="select"] svg {
+        fill: var(--muted) !important;
+    }
+
+    body:has(.audit-history-root) [data-baseweb="popover"],
+    body:has(.audit-history-root) [data-baseweb="menu"],
+    body:has(.audit-history-root) [role="listbox"] {
+        border: 1px solid var(--line) !important;
+        background: var(--panel) !important;
+        color: var(--ink) !important;
+    }
+
+    body:has(.audit-history-root) [role="option"] {
+        background: var(--panel) !important;
+        color: var(--ink) !important;
+    }
+
+    body:has(.audit-history-root) [role="option"]:hover,
+    body:has(.audit-history-root) [role="option"][aria-selected="true"] {
+        background: var(--accent-soft) !important;
+        color: var(--ink) !important;
+    }
+
+    .stApp:has(.audit-history-root) .st-key-history-export {
+        display: flex;
+        width: 100%;
+        height: 3.2rem !important;
+        min-height: 3.2rem !important;
+        align-self: center !important;
+        align-items: center;
+        justify-content: flex-start;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+
+    .stApp:has(.audit-history-root) .st-key-history-export [data-testid="stDownloadButton"] {
+        display: flex;
+        height: 3.2rem !important;
+        min-height: 3.2rem !important;
+        align-items: stretch;
+        padding: 0 !important;
+        margin: 0 !important;
+    }
+
+    .stApp:has(.audit-history-root) .st-key-history-export [data-testid="stDownloadButton"] button {
+        width: max-content !important;
+        min-width: 0;
+        height: 3.2rem !important;
+        min-height: 3.2rem !important;
+        box-sizing: border-box;
+        margin: 0 !important;
+        padding: 0 .55rem;
         border: 0;
         border-radius: 9px;
         background: #3867e8;
@@ -1709,7 +1949,7 @@ st.markdown(
         font-weight: 700;
     }
 
-    .stApp:has(.audit-history-root) .st-key-history-export button:hover {
+    .stApp:has(.audit-history-root) .st-key-history-export [data-testid="stDownloadButton"] button:hover {
         background: #2d58d0;
         color: #fff;
     }
@@ -1794,10 +2034,58 @@ st.markdown(
         padding: .25rem .55rem;
     }
 
-    .stApp:has(.audit-history-root) [class*="st-key-history-page-active-"] button {
-        border-color: #3867e8;
-        background: #3867e8;
-        color: #fff;
+    .stApp:has(.audit-history-root) .st-key-history-pagination-controls {
+        overflow-x: auto;
+        margin-top: 1.25rem;
+        padding-top: .25rem;
+    }
+
+    .stApp:has(.audit-history-root) .st-key-history-pagination-controls [data-testid="stHorizontalBlock"] {
+        display: flex !important;
+        width: 100%;
+        max-width: 100%;
+        justify-content: center;
+        gap: .1rem !important;
+    }
+
+    .stApp:has(.audit-history-root) .st-key-history-pagination-controls [data-testid="column"] {
+        width: 3.25rem !important;
+        min-width: 3.25rem !important;
+        max-width: 3.25rem !important;
+        flex: 0 0 3.25rem !important;
+        padding: 0 !important;
+    }
+
+    .stApp:has(.audit-history-root) .st-key-history-pagination-controls [class*="st-key-history-page-"] button {
+        width: 3.25rem !important;
+        min-width: 3.25rem !important;
+        min-height: 2.65rem;
+        padding: .35rem .65rem;
+        border-radius: 8px;
+        border: 1px solid var(--line) !important;
+        background: var(--panel) !important;
+        color: var(--ink) !important;
+        box-shadow: none;
+    }
+
+    .stApp:has(.audit-history-root) .st-key-history-pagination-controls [class*="st-key-history-page-"] button:hover:not(:disabled) {
+        border-color: var(--accent) !important;
+        background: var(--accent-soft) !important;
+        color: var(--ink) !important;
+    }
+
+    .stApp:has(.audit-history-root) .st-key-history-pagination-controls [class*="st-key-history-page-"] button:disabled {
+        border-color: var(--line) !important;
+        background: var(--panel-2) !important;
+        color: var(--muted) !important;
+        opacity: .7;
+    }
+
+    .stApp:has(.audit-history-root) .st-key-history-pagination-controls [class*="st-key-history-page-active-"] button {
+        border-color: #3867e8 !important;
+        background: #3867e8 !important;
+        color: #fff !important;
+        box-shadow: 0 3px 8px rgba(56, 103, 232, .25);
     }
 
     .stApp:has(.audit-history-root) .st-key-history-delete-panel {
@@ -2050,8 +2338,7 @@ st.markdown(
         color: var(--neutral-text);
     }
 
-    .stApp:has(.user-management-root) [class*="st-key-user-edit-"] button,
-    .stApp:has(.user-management-root) [class*="st-key-user-delete-"] button {
+    .stApp:has(.user-management-root) [class*="st-key-user-edit-"] button {
         min-height: 2rem;
         padding: .15rem .4rem;
         border: 1px solid transparent;
@@ -2060,8 +2347,16 @@ st.markdown(
         font-size: .8rem;
     }
 
+    .stApp:has(.user-management-root) .st-key-user-management-actions .stButton {
+        text-align: right;
+    }
+
     .stApp:has(.user-management-root) .st-key-user-add-button button {
+        width: max-content !important;
+        min-width: 0;
         min-height: 2.65rem;
+        margin-left: auto;
+        padding: 0 1.15rem;
         border: 0;
         border-radius: 8px;
         background: #3867e8;
@@ -2449,7 +2744,7 @@ st.markdown(
 
     .dashboard-guide {
         padding: 1rem 1.1rem 1.15rem;
-        margin-bottom: 1rem;
+        margin-bottom: 0;
     }
 
     .dashboard-guide-heading {
@@ -2523,8 +2818,8 @@ st.markdown(
     .dashboard-kpis {
         display: grid;
         grid-template-columns: repeat(4, minmax(0, 1fr));
-        gap: .8rem;
-        margin: 1rem 0;
+        gap: 1.5rem;
+        margin: 1.5rem 0;
     }
 
     .dashboard-kpi {
@@ -2606,8 +2901,10 @@ st.markdown(
         margin: auto 0 .35rem;
         border-radius: 50%;
         background: conic-gradient(
-            #51b45d 0deg var(--score-angle),
-            var(--neutral-bg) var(--score-angle) 360deg
+            #51b45d 0deg var(--clean-angle),
+            #e6ad32 var(--clean-angle) var(--suspicious-angle),
+            #dc4c4c var(--suspicious-angle) var(--malicious-angle),
+            var(--neutral-bg) var(--malicious-angle) 360deg
         );
     }
 
@@ -2650,6 +2947,16 @@ st.markdown(
     .stApp:has(.dashboard-root) .st-key-dashboard-chart-card {
         min-height: 16rem;
         padding: 1rem 1.1rem .5rem;
+    }
+
+    .stApp:has(.dashboard-root) [data-testid="stHorizontalBlock"]:has(.dashboard-score-card):has(.st-key-dashboard-chart-card) {
+        gap: 1.5rem;
+    }
+
+    @media (max-width: 640px) {
+        .stApp:has(.dashboard-root) [data-testid="stMarkdownContainer"]:has(.dashboard-score-card) {
+            margin-bottom: 0;
+        }
     }
 
     .dashboard-chart-heading {
@@ -2739,6 +3046,10 @@ st.markdown(
     .threat-detection-header {
         align-items: flex-start;
         margin: 0 0 1.15rem;
+    }
+
+    .dashboard-header {
+        margin-bottom: 1.5rem;
     }
 
     .audit-history-header,
@@ -2915,6 +3226,19 @@ st.markdown(
         border-radius: 7px;
     }
 
+    body:has(.workspace-dark-theme) [data-testid="stPopoverBody"] .st-key-FormSubmitter-workspace-name-form-Save-workspace-name button {
+        background: var(--panel-2);
+        border-color: var(--line);
+        color: var(--ink);
+    }
+
+    body:has(.workspace-dark-theme) [data-testid="stPopoverBody"] .st-key-FormSubmitter-workspace-name-form-Save-workspace-name button:hover,
+    body:has(.workspace-dark-theme) [data-testid="stPopoverBody"] .st-key-FormSubmitter-workspace-name-form-Save-workspace-name button:focus-visible {
+        background: var(--accent-soft);
+        border-color: var(--accent);
+        color: var(--ink);
+    }
+
     body:has(.global-header-controls-root) [data-testid="stPopoverBody"] .st-key-notifications-clear-all button {
         border-color: var(--notification-action-line) !important;
     }
@@ -2978,6 +3302,15 @@ st.markdown(
 LOCAL_DOWNLOAD_MONITOR_ENABLED = (
     os.environ.get("LITEAUDIT_ENABLE_LOCAL_DOWNLOAD_MONITOR") == "1"
 )
+
+
+@st.cache_resource
+def local_monitor_liveness() -> AppLiveness:
+    return AppLiveness()
+
+
+if LOCAL_DOWNLOAD_MONITOR_ENABLED:
+    register_app(get_db_connection(), local_monitor_liveness())
 
 # Byte signatures used to flag common document and script indicators.
 SIGNATURES = [
@@ -3128,7 +3461,7 @@ def human_size(size: int) -> str:
 def refresh_download_activity_history() -> tuple[
     str, dict[str, dict[str, object]]
 ]:
-    """Refresh the opt-in folder snapshot and its local activity history."""
+    """List quarantined files without moving or scanning them."""
     if not LOCAL_DOWNLOAD_MONITOR_ENABLED:
         return "", {}
 
@@ -3144,15 +3477,23 @@ def refresh_download_activity_history() -> tuple[
     if not st.session_state.get("local_download_monitor_enabled", False):
         return folder_key, folder_history
 
-    entries = scan_download_folder(Path(folder_key))
-    snapshots = st.session_state.setdefault("local_download_snapshots", {})
-    current_snapshot, folder_history = update_download_history(
-        entries,
-        snapshots.get(folder_key, {}),
-        folder_history,
-        datetime.now().timestamp(),
-    )
-    snapshots[folder_key] = current_snapshot
+    quarantine = Path(folder_key) / QUARANTINE_FOLDER
+    if quarantine.is_symlink():
+        raise OSError(f"Quarantine folder must not be a symlink: {quarantine}")
+    if not quarantine.exists():
+        return folder_key, folder_history
+    entries = scan_download_folder(quarantine)
+    folder_history = {
+        entry["filename"]: {
+            **entry,
+            "state": (
+                "Temporary download file"
+                if entry["suffix"] in INCOMPLETE_DOWNLOAD_SUFFIXES
+                else "Quarantined"
+            ),
+        }
+        for entry in entries[:MAX_DOWNLOAD_HISTORY]
+    }
     histories[folder_key] = folder_history
 
     return folder_key, folder_history
@@ -3171,6 +3512,7 @@ def render_global_header_controls() -> None:
             st.session_state.download_monitor_error = (
                 f"Could not monitor this folder: {error}"
             )
+            st.error(st.session_state.download_monitor_error)
         else:
             st.session_state.pop("download_monitor_error", None)
 
@@ -3455,24 +3797,6 @@ def render_global_header_controls() -> None:
                     elif cleaned_name != organization_name:
                         set_app_setting("organization_name", cleaned_name)
                         st.rerun()
-                for label, destination, key in (
-                    ("Settings", "Settings", "workspace-open-settings"),
-                    (
-                        "Reports & Analytics",
-                        "Reports & Analytics",
-                        "workspace-open-reports",
-                    ),
-                    (
-                        "User Management",
-                        "User Management",
-                        "workspace-open-users",
-                    ),
-                ):
-                    if st.button(label, key=key, use_container_width=True):
-                        st.session_state.selected_section = destination
-                        st.rerun()
-
-
 def scan_document(
     file_name: str,
     data: bytes,
@@ -3621,7 +3945,7 @@ def build_analytics_pdf(
 
 @st.fragment(run_every="2s")
 def render_file_activity_monitor() -> None:
-    """Render recent local downloads and scan files only when explicitly requested."""
+    """Render quarantined files and scan them only when explicitly requested."""
     monitoring_enabled = st.session_state.get("local_download_monitor_enabled", False)
     folder = Path(
         st.session_state.get(
@@ -3660,7 +3984,7 @@ def render_file_activity_monitor() -> None:
         in scan_registry
     )
     metric_columns = st.columns(4, gap="medium")
-    metric_columns[0].metric("↓  Tracked Downloads", f"{len(records):,}")
+    metric_columns[0].metric("↓  Quarantined", f"{len(records):,}")
     metric_columns[1].metric("✓  Scanned", f"{scanned_count:,}")
     metric_columns[2].metric("!  Unscanned", f"{len(records) - scanned_count:,}")
     metric_columns[3].metric("⚠  Suspicious", f"{suspicious_count:,}")
@@ -3711,7 +4035,7 @@ def render_file_activity_monitor() -> None:
                     unsafe_allow_html=True,
                 )
                 row_columns[2].markdown(
-                    '<div class="activity-table-cell">Monitored folder</div>',
+                    '<div class="activity-table-cell">Quarantine</div>',
                     unsafe_allow_html=True,
                 )
                 row_columns[3].markdown(
@@ -3719,13 +4043,18 @@ def render_file_activity_monitor() -> None:
                     f"{icon} {status}</span>",
                     unsafe_allow_html=True,
                 )
-                if saved_scan:
+                if saved_scan and saved_scan["id"] is not None:
                     if row_columns[4].button(
                         "View",
                         key=f"activity-view-{table_id}-{safe_key}",
                         help="View saved scan result",
                     ):
                         st.session_state.activity_view_scan_id = int(saved_scan["id"])
+                elif saved_scan:
+                    row_columns[4].markdown(
+                        '<div class="activity-table-cell">Clean</div>',
+                        unsafe_allow_html=True,
+                    )
                 elif row_columns[4].button(
                     "Scan",
                     key=f"activity-scan-{table_id}-{safe_key}",
@@ -3733,16 +4062,21 @@ def render_file_activity_monitor() -> None:
                         not LOCAL_DOWNLOAD_MONITOR_ENABLED
                         or not monitoring_enabled
                         or not file_is_present
+                        or state == "Temporary download file"
                     ),
                     help=(
                         "Read and scan this file in memory. It will not be uploaded."
                     ),
                 ):
                     try:
-                        resolved_folder = folder.resolve(strict=True)
-                        target = (folder / filename).resolve(strict=True)
-                        if target.parent != resolved_folder or not target.is_file():
-                            st.error("This file is no longer available in the monitored folder.")
+                        quarantine = folder.resolve(strict=True) / "LiteAudit_Quarantine"
+                        if quarantine.is_symlink():
+                            raise OSError("Quarantine folder must not be a symlink.")
+                        resolved_folder = quarantine.resolve(strict=True)
+                        target = quarantine / filename
+                        if (target.is_symlink() or target.resolve(strict=True).parent
+                                != resolved_folder or not target.is_file()):
+                            st.error("This file is no longer available in quarantine.")
                             continue
                         file_bytes = target.read_bytes()
                     except (OSError, RuntimeError) as error:
@@ -3755,7 +4089,7 @@ def render_file_activity_monitor() -> None:
                         continue
                     result = scan_document(filename, file_bytes)
                     scan_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    insert_scan_result(
+                    saved_id = insert_scan_result(
                         filename=filename,
                         verdict=result["verdict"],
                         score=result["score"],
@@ -3765,12 +4099,8 @@ def render_file_activity_monitor() -> None:
                         findings=result["findings"],
                         file_size_bytes=len(file_bytes),
                     )
-                    saved_scans = get_all_scans()
-                    saved_row = saved_scans.loc[
-                        saved_scans["sha256"] == result["sha256"]
-                    ].sort_values("id", ascending=False).iloc[0]
                     scan_registry[fingerprint] = {
-                        "id": int(saved_row["id"]),
+                        "id": saved_id,
                         "score": int(result["score"]),
                     }
                     st.session_state.setdefault("local_download_scans", {})[
@@ -3786,33 +4116,41 @@ def render_file_activity_monitor() -> None:
         if "activity_scan_notice" in st.session_state:
             st.success(st.session_state.pop("activity_scan_notice"))
         with st.expander("Monitor settings", key="activity-monitor-settings"):
+            st.session_state.activity_monitor_enabled = (
+                st.session_state.local_download_monitor_enabled
+            )
+            st.session_state.activity_monitor_folder = (
+                st.session_state.local_download_folder
+            )
             st.toggle(
                 "Monitor this folder path",
-                key="local_download_monitor_enabled",
+                key="activity_monitor_enabled",
                 disabled=not LOCAL_DOWNLOAD_MONITOR_ENABLED,
                 on_change=save_download_monitor_settings,
+                args=("local_download_monitor_enabled", "activity_monitor_enabled"),
                 help="Monitoring is available only when LiteAudit runs on the computer "
                 "that owns the selected folder.",
             )
             st.text_input(
                 "Folder path to monitor",
-                key="local_download_folder",
+                key="activity_monitor_folder",
                 help="Enter an absolute path, such as C:\\Users\\you\\Downloads.",
                 disabled=not LOCAL_DOWNLOAD_MONITOR_ENABLED,
                 on_change=save_download_monitor_settings,
+                args=("local_download_folder", "activity_monitor_folder"),
             )
-            if st.button(
-                "Clear detected files",
-                key="clear_download_history",
-                disabled=not folder_history,
-            ):
-                st.session_state.setdefault("local_download_history", {})[
-                    folder_key
-                ] = {}
-                st.session_state.setdefault("local_download_snapshots", {})[
-                    folder_key
-                ] = {}
-                st.rerun()
+            if Path(st.session_state.local_download_folder).name.casefold() == QUARANTINE_FOLDER.casefold():
+                st.warning(
+                    "The quarantine folder cannot be monitored. Select its parent "
+                    "Downloads folder to monitor new files."
+                )
+            st.caption(
+                "The standalone watcher handles newly added regular files only while "
+                "the app and monitoring are active. Files already present are left "
+                "untouched. New files are scanned after quarantine; high-risk files "
+                "are permanently deleted and other files remain for review. The watcher "
+                "cannot distinguish downloads from other newly added files."
+            )
 
         if records:
             render_download_table(records, "recent")
@@ -3830,7 +4168,7 @@ def render_file_activity_monitor() -> None:
         elif not monitoring_enabled:
             st.info("Monitoring is off. Turn it on in Monitor settings to watch the folder.")
         else:
-            st.info("No downloads have been detected yet.")
+            st.info("No files are awaiting review in quarantine.")
 
         viewed_scan_id = st.session_state.get("activity_view_scan_id")
         if viewed_scan_id is not None:
@@ -3887,9 +4225,12 @@ def render_file_activity_monitor() -> None:
             render_download_table(list(alert_records.values()), "alerts")
 
     st.caption(
-        "The monitor checks file metadata every 2 seconds while this page is open. "
-        "Up to 50 recent files are tracked per session. Files are read into memory "
-        "only when you choose Scan; monitoring alone does not inspect file contents."
+        "The app shows up to 50 quarantined files. Run quarantine_watcher.py "
+        "to monitor the selected folder while the app and monitor toggle are active. "
+        "The watcher scans files it quarantines and permanently deletes high-risk "
+        "files; other files stay in quarantine. Existing files are left untouched. "
+        "Polling may miss files created and removed between checks; "
+        "a pause in writing may be mistaken for completion."
     )
 
 
@@ -4089,7 +4430,6 @@ with st.sidebar:
         on_change=save_theme_preference,
     )
     st.markdown('<div class="side-label">Workspace</div>', unsafe_allow_html=True)
-    organization_label = escape(get_app_setting("organization_name", "LiteAudit"))
     if "selected_section" not in st.session_state:
         st.session_state.selected_section = "Dashboard"
     elif st.session_state.selected_section == "Getting started":
@@ -4142,12 +4482,11 @@ with st.sidebar:
 
     selected_section = st.session_state.selected_section
     st.markdown(
-        f"""
+        """
         <div class="side-card">
-            <strong>{organization_label} · Local-first protection</strong>
-            Files are inspected in memory. Scan metadata is saved to the local audit database.
+            <strong>LiteAudit Enterprise</strong>
+            LiteAudit is file security scanner. It is not meant to replace traditional antivirus or malware detection software. This application is best used when combined with other security measures. By using LiteAudit, you agree to the terms above.
         </div>
-        <div class="footer-note">Prototype engine · v0.8.2</div>
         """,
         unsafe_allow_html=True,
     )
@@ -4201,7 +4540,7 @@ if selected_section == "Dashboard":
                 <div class="dashboard-step">
                     <span class="dashboard-step-number">2</span>
                     <strong>Scan &amp; Review</strong>
-                    <p>Review the risk score and any indicators found.</p>
+                    <p>Review the Risk Score in Threat Detection.</p>
                 </div>
                 <span class="dashboard-step-arrow" aria-hidden="true">&#8594;</span>
                 <div class="dashboard-step">
@@ -4213,7 +4552,7 @@ if selected_section == "Dashboard":
                 <div class="dashboard-step">
                     <span class="dashboard-step-number">4</span>
                     <strong>Monitor &amp; Report</strong>
-                    <p>Track local file activity and scan trends in Reports.</p>
+                    <p>Track local file activity and scan trends in Reports &amp; Analytics.</p>
                 </div>
             </div>
         </section>
@@ -4225,7 +4564,7 @@ if selected_section == "Dashboard":
         ("▤", "blue", dashboard_total_scans, "Files Scanned"),
         ("✓", "green", dashboard_clean_scans, "Clean"),
         ("?", "amber", dashboard_review_scans, "Suspicious"),
-        ("!!!", "red", dashboard_malicious_scans, "Malicious"),
+        ("!!!", "red", dashboard_malicious_scans, "High-Risk"),
     ]
     metric_markup = "".join(
         f'<div class="dashboard-kpi"><div class="dashboard-kpi-icon {tone}" '
@@ -4239,7 +4578,31 @@ if selected_section == "Dashboard":
     )
 
     score_label = f"{dashboard_security_score}%" if dashboard_total_scans else "—"
-    score_angle = dashboard_security_score * 3.6 if dashboard_total_scans else 0
+    clean_angle = (
+        dashboard_clean_scans / dashboard_total_scans * 360
+        if dashboard_total_scans else 0
+    )
+    suspicious_angle = (
+        (dashboard_clean_scans + dashboard_review_scans) / dashboard_total_scans * 360
+        if dashboard_total_scans else 0
+    )
+    malicious_angle = (
+        (dashboard_clean_scans + dashboard_review_scans + dashboard_malicious_scans)
+        / dashboard_total_scans * 360
+        if dashboard_total_scans else 0
+    )
+    unclassified_scans = (
+        dashboard_total_scans
+        - dashboard_clean_scans
+        - dashboard_review_scans
+        - dashboard_malicious_scans
+    )
+    score_accessibility = (
+        f"Clean scan rate {score_label}. {dashboard_clean_scans:,} clean, "
+        f"{dashboard_review_scans:,} suspicious, {dashboard_malicious_scans:,} high-risk"
+        + (f", {unclassified_scans:,} unclassified" if unclassified_scans else "")
+        + " saved scans."
+    )
     score_description = (
         f"Clean scan rate across {dashboard_total_scans:,} saved scans."
         if dashboard_total_scans
@@ -4252,9 +4615,9 @@ if selected_section == "Dashboard":
             <section class="dashboard-score-card">
                 <h2 class="dashboard-panel-title">◉ &nbsp;Security Score</h2>
                 <div class="dashboard-score-ring"
-                     style="--score-angle: {score_angle:.1f}deg"
+                     style="--clean-angle: {clean_angle:.6f}deg; --suspicious-angle: {suspicious_angle:.6f}deg; --malicious-angle: {malicious_angle:.6f}deg"
                      role="img"
-                     aria-label="Clean scan rate {escape(score_label)}">
+                     aria-label="{escape(score_accessibility)}">
                     <div class="dashboard-score-inner">
                         <strong>{escape(score_label)}</strong>
                         <span>Security<br>Score</span>
@@ -4308,7 +4671,7 @@ elif selected_section == "File Scanner":
             <div>
                 <h1 class="file-scanner-title">File Scanner</h1>
                 <p class="file-scanner-subtitle">
-                    Upload and scan files for harmful scripts, injections, and suspicious content.
+                    Upload and scan files for suspicious content.
                 </p>
             </div>
             <div class="file-scanner-header-tools">
@@ -4460,7 +4823,8 @@ elif selected_section == "File Scanner":
                     st.session_state.get("scanner_upload_generation", 0) + 1
                 )
                 st.session_state.scanner_scan_notice = (
-                    f"Scanned {completed_scans} file(s) successfully."
+                    f"Scanned {completed_scans} file(s) successfully. "
+                    "Only suspicious and high-risk results are recorded."
                 )
                 if oversized_files:
                     st.session_state.scanner_scan_notice += (
@@ -4468,19 +4832,18 @@ elif selected_section == "File Scanner":
                     )
                 st.rerun()
 
-    st.markdown('<div class="file-scanner-section-heading">Scan Results</div>', unsafe_allow_html=True)
-    st.markdown(
-        """
-        <div class="file-scanner-results">
-            <div class="file-scanner-table-header">
-                <span>File Name</span><span>File Type</span><span>Size</span>
-                <span>Result</span><span>Threat Level</span><span>Actions</span>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    recent_results = all_scan_results.head(8)
+    st.markdown('<div class="file-scanner-section-heading">Recent Scan Results (10)</div>', unsafe_allow_html=True)
+    scan_result_columns = [2.1, .65, .8, 1, .8, .55]
+    with st.container(key="scan-result-header"):
+        header_columns = st.columns(scan_result_columns, gap="small")
+        for column, heading in zip(
+            header_columns, ("File Name", "File Type", "Size", "Result", "Threat Level", "Actions")
+        ):
+            column.markdown(
+                f'<span class="file-scanner-table-heading">{heading}</span>',
+                unsafe_allow_html=True,
+            )
+    recent_results = all_scan_results.head(10)
     if recent_results.empty:
         st.info("Your scan results will appear here after your first file scan.")
     else:
@@ -4496,7 +4859,7 @@ elif selected_section == "File Scanner":
                 else "safe"
             )
             result_label = (
-                "High risk"
+                "High-Risk"
                 if tone == "danger"
                 else "Suspicious"
                 if tone == "warn"
@@ -4510,7 +4873,7 @@ elif selected_section == "File Scanner":
                 else "Low"
             )
             with st.container(key=f"scan-result-row-{int(scan.id)}"):
-                row_columns = st.columns([2.1, .65, .8, 1, .8, .55], gap="small")
+                row_columns = st.columns(scan_result_columns, gap="small")
                 row_columns[0].markdown(
                     f'<div class="file-scanner-table-name" title="{escape(str(scan.filename), quote=True)}">'
                     f'{escape(str(scan.filename))}</div>',
@@ -4529,7 +4892,6 @@ elif selected_section == "File Scanner":
                 if row_columns[5].button(
                     "View",
                     key=f"view_scan_{int(scan.id)}",
-                    help="View saved scan details",
                 ):
                     st.session_state.scanner_view_scan_id = int(scan.id)
 
@@ -4540,9 +4902,12 @@ elif selected_section == "File Scanner":
         ]
         if not selected_scan.empty:
             scan = selected_scan.iloc[0]
+            view_verdict = (
+                "High-Risk" if scan["verdict"] == "High risk" else str(scan["verdict"])
+            )
             st.markdown(
                 f'<div class="file-scanner-view-panel"><strong>{escape(str(scan["filename"]))}</strong>'
-                f' · {escape(str(scan["verdict"]))} · Risk score {int(scan["score"])}/100'
+                f' · {escape(view_verdict)} · Risk score {int(scan["score"])}/100'
                 f'<br><small>Scanned {escape(str(scan["scan_date"]))} · SHA-256 '
                 f'{escape(str(scan["sha256"]))}</small></div>',
                 unsafe_allow_html=True,
@@ -4584,41 +4949,41 @@ elif selected_section == "Audit History":
         st.success(st.session_state.pop("deleted_scans_notice"))
 
     history_df = get_all_scans()
-    filters = st.columns([1.8, .9, 1, .72], gap="small")
-    with filters[0]:
-        filename_query = st.text_input(
-            "Search files",
-            placeholder="Search files, users, or IDs...",
-            key="history-search",
-            label_visibility="collapsed",
-        )
-    with filters[1]:
-        verdict_options = ["All results"] + sorted(history_df["verdict"].unique())
-        selected_verdict = st.selectbox(
-            "Result",
-            verdict_options,
-            key="history-result-filter",
-            label_visibility="collapsed",
-        )
-    with filters[2]:
-        date_filter = st.selectbox(
-            "Date range",
-            ["Last 30 Days", "Last 90 Days", "All Time"],
-            key="history-date-filter",
-            label_visibility="collapsed",
-        )
-    with filters[3]:
-        st.download_button(
-            "Export ⌄",
-            data=history_df.drop(
-                columns=["findings_json"], errors="ignore"
-            ).to_csv(index=False).encode("utf-8"),
-            file_name="liteaudit-audit-history.csv",
-            mime="text/csv",
-            use_container_width=True,
-            disabled=history_df.empty,
-            key="history-export",
-        )
+    with st.container(key="audit-history-filters"):
+        filters = st.columns([1.8, .9, 1, .48], gap="small")
+        with filters[0]:
+            filename_query = st.text_input(
+                "Search files",
+                placeholder="Search files, users, or IDs...",
+                key="history-search",
+                label_visibility="collapsed",
+            )
+        with filters[1]:
+            verdict_options = ["All results"] + sorted(history_df["verdict"].unique())
+            selected_verdict = st.selectbox(
+                "Result",
+                verdict_options,
+                key="history-result-filter",
+                label_visibility="collapsed",
+            )
+        with filters[2]:
+            date_filter = st.selectbox(
+                "Date range",
+                ["Last 30 Days", "Last 90 Days", "All Time"],
+                key="history-date-filter",
+                label_visibility="collapsed",
+            )
+        with filters[3]:
+            st.download_button(
+                "⇩ Export",
+                data=history_df.drop(
+                    columns=["findings_json"], errors="ignore"
+                ).to_csv(index=False).encode("utf-8"),
+                file_name="liteaudit-audit-history.csv",
+                mime="text/csv",
+                disabled=history_df.empty,
+                key="history-export",
+            )
 
     filtered_history = history_df.copy()
     if filename_query.strip():
@@ -4650,7 +5015,7 @@ elif selected_section == "Audit History":
     elif filtered_history.empty:
         st.info("No audit records match the selected filters.")
     else:
-        rows_per_page = 5
+        rows_per_page = 50
         total_pages = max(
             1, (len(filtered_history) + rows_per_page - 1) // rows_per_page
         )
@@ -4668,11 +5033,11 @@ elif selected_section == "Audit History":
             tone = "danger" if score >= 50 else "warn" if score >= 15 else "safe"
             threat_level = "High" if tone == "danger" else "Medium" if tone == "warn" else "Low"
             result_label = (
-                "High risk" if tone == "danger"
+                "High-Risk" if tone == "danger"
                 else "Suspicious" if tone == "warn"
                 else "Clean"
             )
-            result_icon = "✕" if tone == "danger" else "▲" if tone == "warn" else "✓"
+            result_icon = "!!!" if tone == "danger" else "?" if tone == "warn" else "✓"
             parsed_date = pd.to_datetime(row.scan_date, errors="coerce")
             formatted_date = (
                 parsed_date.strftime("%m/%d/%Y %I:%M %p").replace(" 0", " ")
@@ -4703,39 +5068,53 @@ elif selected_section == "Audit History":
         st.markdown(table_html, unsafe_allow_html=True)
 
         if total_pages > 1:
-            page_window_start = max(1, min(current_page - 2, total_pages - 4))
-            page_numbers = list(
-                range(page_window_start, min(total_pages, page_window_start + 4) + 1)
+            page_button_count = 9
+            page_window_start = max(
+                1,
+                min(
+                    current_page - page_button_count // 2,
+                    total_pages - page_button_count + 1,
+                ),
             )
-            page_columns = st.columns([1] + [1] * len(page_numbers) + [1], gap="small")
-            if page_columns[0].button(
-                "‹",
-                key="history-page-previous",
-                disabled=current_page == 1,
-                help="Previous page",
-            ):
-                st.session_state.history_page = current_page - 1
-                st.rerun()
-            for index, page_number in enumerate(page_numbers, start=1):
-                if page_columns[index].button(
-                    str(page_number),
-                    key=(
-                        f"history-page-active-{page_number}"
-                        if page_number == current_page
-                        else f"history-page-{page_number}"
-                    ),
-                    type="primary" if page_number == current_page else "secondary",
+            page_numbers = list(
+                range(
+                    page_window_start,
+                    min(total_pages, page_window_start + page_button_count - 1) + 1,
+                )
+            )
+            with st.container(key="history-pagination-controls"):
+                page_columns = st.columns(
+                    [.8] + [1] * len(page_numbers) + [.8],
+                    gap="small",
+                )
+                if page_columns[0].button(
+                    "‹",
+                    key="history-page-previous",
+                    disabled=current_page == 1,
+                    help="Previous page",
                 ):
-                    st.session_state.history_page = page_number
+                    st.session_state.history_page = current_page - 1
                     st.rerun()
-            if page_columns[-1].button(
-                "›",
-                key="history-page-next",
-                disabled=current_page == total_pages,
-                help="Next page",
-            ):
-                st.session_state.history_page = current_page + 1
-                st.rerun()
+                for index, page_number in enumerate(page_numbers, start=1):
+                    if page_columns[index].button(
+                        str(page_number),
+                        key=(
+                            f"history-page-active-{page_number}"
+                            if page_number == current_page
+                            else f"history-page-{page_number}"
+                        ),
+                        type="primary" if page_number == current_page else "secondary",
+                    ):
+                        st.session_state.history_page = page_number
+                        st.rerun()
+                if page_columns[-1].button(
+                    "›",
+                    key="history-page-next",
+                    disabled=current_page == total_pages,
+                    help="Next page",
+                ):
+                    st.session_state.history_page = current_page + 1
+                    st.rerun()
 
         with st.expander("Manage audit records"):
             scan_labels = {
@@ -4772,16 +5151,11 @@ elif selected_section == "Audit History":
                 st.rerun()
 
 elif selected_section == "Threat Detection":
+    THREAT_LIST_LIMIT = 100  # keeps the list responsive; older scans stay in History
     st.markdown('<div class="threat-detection-root"></div>', unsafe_allow_html=True)
     scan_records = get_all_scans()
-    threat_count = int(
-        (
-            scan_records["score"].ge(15)
-            | scan_records["verdict"].isin(
-                ["Suspicious", "Malicious", "High risk", "Review needed"]
-            )
-        ).sum()
-    )
+    flagged_scans = scan_records.loc[scan_records["score"].ge(15)]
+    threat_count = len(flagged_scans)
     alert_badge = f"<span>{threat_count:,}</span>" if threat_count else ""
     st.markdown(
         f"""
@@ -4817,7 +5191,9 @@ elif selected_section == "Threat Detection":
                 key="threat-search",
                 label_visibility="collapsed",
             )
-            visible_scans = scan_records
+            visible_scans = flagged_scans.sort_values(
+                "scan_date", ascending=False, kind="stable"
+            ).head(THREAT_LIST_LIMIT)
             if search_threat.strip():
                 visible_scans = visible_scans[
                     visible_scans["filename"].str.contains(
@@ -4829,52 +5205,43 @@ elif selected_section == "Threat Detection":
                 ]
 
             if visible_scans.empty:
-                st.info("No scanned files match your search.")
+                st.info("No suspicious or high-risk scans match your search.")
             else:
                 selected_id = st.session_state.get("threat_selected_scan_id")
                 if selected_id not in visible_scans["id"].tolist():
-                    flagged_visible = visible_scans.loc[
-                        (visible_scans["score"] >= 15)
-                        | visible_scans["verdict"].isin(
-                            ["Suspicious", "Malicious", "High risk", "Review needed"]
-                        )
-                    ]
-                    default_row = (
-                        flagged_visible.iloc[0]
-                        if not flagged_visible.empty
-                        else visible_scans.iloc[0]
-                    )
+                    default_row = visible_scans.iloc[0]
                     selected_id = int(default_row["id"])
                     st.session_state.threat_selected_scan_id = selected_id
 
-                for scan in visible_scans.itertuples(index=False):
-                    score = int(scan.score)
-                    tone = (
-                        "danger"
-                        if score >= 50
-                        else "warn"
-                        if score >= 15
-                        else "safe"
-                    )
-                    level = (
-                        "High"
-                        if tone == "danger"
-                        else "Medium"
-                        if tone == "warn"
-                        else "Low"
-                    )
-                    is_selected = int(scan.id) == int(selected_id)
-                    if st.button(
-                        str(scan.filename),
-                        key=(
-                            f"threat-file-select-{level.lower()}-active-{int(scan.id)}"
-                            if is_selected
-                            else f"threat-file-select-{level.lower()}-{int(scan.id)}"
-                        ),
-                        use_container_width=True,
-                    ):
-                        st.session_state.threat_selected_scan_id = int(scan.id)
-                        st.rerun()
+                with st.container(height=640, border=False, key="threat-file-scroll"):
+                    for scan in visible_scans.itertuples(index=False):
+                        score = int(scan.score)
+                        tone = (
+                            "danger"
+                            if score >= 50
+                            else "warn"
+                            if score >= 15
+                            else "safe"
+                        )
+                        level = (
+                            "High"
+                            if tone == "danger"
+                            else "Medium"
+                            if tone == "warn"
+                            else "Low"
+                        )
+                        is_selected = int(scan.id) == int(selected_id)
+                        if st.button(
+                            str(scan.filename),
+                            key=(
+                                f"threat-file-select-{level.lower()}-active-{int(scan.id)}"
+                                if is_selected
+                                else f"threat-file-select-{level.lower()}-{int(scan.id)}"
+                            ),
+                            use_container_width=True,
+                        ):
+                            st.session_state.threat_selected_scan_id = int(scan.id)
+                            st.rerun()
 
     with detail_column:
         with st.container(key="threat-detail-panel"):
@@ -4970,9 +5337,9 @@ elif selected_section == "Threat Detection":
                 with overview_tab:
                     alert_class = selected_tone
                     alert_icon = (
-                        "☣"
+                        "!!!"
                         if selected_tone == "danger"
-                        else "!"
+                        else "?"
                         if selected_tone == "warn"
                         else "✓"
                     )
@@ -5083,6 +5450,29 @@ elif selected_section == "Threat Detection":
                     """
                     st.markdown(details_markup, unsafe_allow_html=True)
 
+    st.markdown(
+        """
+        <section class="threat-score-guide" aria-labelledby="threat-score-guide-title">
+            <h2 id="threat-score-guide-title">Risk Score Guide</h2>
+            <div class="threat-score-guide-grid">
+                <div class="threat-score-guide-item safe">
+                    <strong>0–14 · Low risk</strong>
+                    <span>No known indicators were found by the enabled checks. This is not a guarantee that the file is safe.</span>
+                </div>
+                <div class="threat-score-guide-item warn">
+                    <strong>15–49 · Suspicious</strong>
+                    <span>One or more indicators need review. Check the findings before trusting or opening the file.</span>
+                </div>
+                <div class="threat-score-guide-item danger">
+                    <strong>50–100 · High-Risk</strong>
+                    <span>Strong or multiple indicators were found. Treat the file as potentially harmful and avoid opening it unless verified.</span>
+                </div>
+            </div>
+        </section>
+        """,
+        unsafe_allow_html=True,
+    )
+
 elif selected_section == "File Activity Monitor":
     st.markdown('<div class="activity-monitor-root"></div>', unsafe_allow_html=True)
     st.markdown(
@@ -5091,7 +5481,7 @@ elif selected_section == "File Activity Monitor":
             <div class="activity-monitor-header">
                 <h1 class="activity-monitor-title">File Activity Monitor</h1>
                 <p class="activity-monitor-subtitle">
-                    Monitor new and background downloads in the Downloads folder.
+                    Quarantine new files for review without touching existing files.
                 </p>
             </div>
             <div class="file-scanner-header-tools">
@@ -5135,13 +5525,11 @@ elif selected_section == "User Management":
         st.session_state.managed_user_id = None
 
     users_df = get_users()
-    add_action, _ = st.columns([1, 5])
-    with add_action:
+    with st.container(key="user-management-actions"):
         if st.button(
             "＋ Add User",
             key="user-add-button",
             type="primary",
-            use_container_width=True,
         ):
             st.session_state.show_add_user_form = not st.session_state.show_add_user_form
             st.rerun()
@@ -5191,22 +5579,14 @@ elif selected_section == "User Management":
                         'title="Login events are not tracked">Not recorded</div>',
                         unsafe_allow_html=True,
                     )
-                    with row_columns[5]:
-                        edit_action, menu_action = st.columns(2, gap="small")
-                        if edit_action.button(
-                            "✎",
-                            key=f"user-edit-{user_id}",
-                            help=f"Edit {user.name}",
-                        ):
-                            st.session_state.managed_user_id = user_id
-                            st.session_state.show_add_user_form = False
-                            st.rerun()
-                        if menu_action.button(
-                            "⋮",
-                            key=f"user-delete-{user_id}",
-                            help=f"Delete {user.name}",
-                        ):
-                            st.session_state.confirm_delete_user_id = user_id
+                    if row_columns[5].button(
+                        "✎",
+                        key=f"user-edit-{user_id}",
+                        help=f"Edit {user.name}",
+                    ):
+                        st.session_state.managed_user_id = user_id
+                        st.session_state.show_add_user_form = False
+                        st.rerun()
 
     roles = ["Administrator", "Security Analyst", "Employee"]
     statuses = ["Active", "Inactive"]
@@ -5331,31 +5711,6 @@ elif selected_section == "User Management":
                 if cancel_edit:
                     st.session_state.managed_user_id = None
                     st.rerun()
-
-    confirm_delete_id = st.session_state.get("confirm_delete_user_id")
-    if confirm_delete_id is not None:
-        delete_target = users_df.loc[users_df["id"] == confirm_delete_id]
-        if not delete_target.empty:
-            st.warning(
-                f"Delete {delete_target.iloc[0]['name']} from this directory? "
-                "This cannot be undone."
-            )
-            confirm_col, cancel_col = st.columns(2)
-            if confirm_col.button(
-                "Confirm delete",
-                key="confirm-delete-user",
-                type="primary",
-            ):
-                delete_users([int(confirm_delete_id)])
-                st.session_state.pop("confirm_delete_user_id", None)
-                st.rerun()
-            if cancel_col.button("Cancel", key="cancel-delete-user"):
-                st.session_state.pop("confirm_delete_user_id", None)
-                st.rerun()
-
-    st.caption(
-        "Local directory only. This prototype does not authenticate users or track login activity."
-    )
 
 elif selected_section == "Settings":
     st.markdown('<div class="settings-root"></div>', unsafe_allow_html=True)
@@ -5623,20 +5978,30 @@ elif selected_section == "Settings":
 
             elif active_category == "Downloads Monitor":
                 st.write(
-                    "Monitor a local folder for downloads. The monitor records file "
-                    "names and sizes only; content is read only when you explicitly scan."
+                    "The standalone watcher monitors this folder while the app and "
+                    "monitoring are active. It scans newly added files, permanently "
+                    "deletes high-risk files, and holds other files in quarantine. "
+                    "Files already present when monitoring starts are left untouched."
+                )
+                st.session_state.settings_monitor_enabled = (
+                    st.session_state.local_download_monitor_enabled
+                )
+                st.session_state.settings_monitor_folder = (
+                    st.session_state.local_download_folder
                 )
                 st.toggle(
                     "Enable local folder monitoring",
-                    key="local_download_monitor_enabled",
+                    key="settings_monitor_enabled",
                     disabled=not LOCAL_DOWNLOAD_MONITOR_ENABLED,
                     on_change=save_download_monitor_settings,
+                    args=("local_download_monitor_enabled", "settings_monitor_enabled"),
                 )
                 st.text_input(
                     "Folder path",
-                    key="local_download_folder",
+                    key="settings_monitor_folder",
                     disabled=not LOCAL_DOWNLOAD_MONITOR_ENABLED,
                     on_change=save_download_monitor_settings,
+                    args=("local_download_folder", "settings_monitor_folder"),
                 )
                 if not LOCAL_DOWNLOAD_MONITOR_ENABLED:
                     st.info(
@@ -5856,6 +6221,8 @@ elif selected_section == "Reports & Analytics":
                             ],
                         )
                         .properties(height=185)
+                        .configure(background="transparent")
+                        .configure_view(fill="transparent")
                     )
                     st.altair_chart(chart, width="stretch")
                 else:
@@ -5993,13 +6360,3 @@ elif selected_section == "Reports & Analytics":
             type="primary",
             disabled=report_records.empty,
         )
-
-if selected_section not in {
-    "Dashboard",
-    "File Scanner",
-    "Threat Detection",
-    "User Management",
-    "Reports & Analytics",
-    "Settings",
-}:
-    st.caption("LiteAudit · Local document verification prototype · v0.8.2")
