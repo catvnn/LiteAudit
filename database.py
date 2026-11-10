@@ -95,7 +95,7 @@ def get_critical_threats(min_score=80):
     return pd.read_sql_query(query, get_db_connection(), params=(min_score,))
 
 
-@st.cache_data
+@st.cache_data(ttl=5)
 def get_verdict_metrics():
     """Query 4: Aggregate grouped metrics totals across threat states."""
     query = """
@@ -119,7 +119,7 @@ def get_duplicate_uploads():
     return pd.read_sql_query(query, get_db_connection())
 
 
-@st.cache_data
+@st.cache_data(ttl=5)
 def get_daily_scan_metrics(days: int | None = None):
     """Count scans and threat verdicts by day, optionally limiting the date range."""
     date_filter = ""
@@ -182,7 +182,7 @@ def lookup_file_hash(sha256_hash):
 
 
 # ➕ ADDED: REQUIRED FOR YOUR FULL AUDIT HISTORY VIEW TAB
-@st.cache_data
+@st.cache_data(ttl=5)
 def get_all_scans():
     """Query 6: Fetch every single record from the database, newest first."""
     query = """
