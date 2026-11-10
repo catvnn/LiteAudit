@@ -1,5 +1,5 @@
 """
-quarantine_watcher.py - scans files that Chrome saved into Downloads/quarantine.
+quarantine_watcher.py - scans files that Chrome saved into Downloads/LiteAudit_Quarantine.
 
 Flow for every file in the quarantine folder:
     1. wait until Chrome has finished writing it
@@ -7,7 +7,7 @@ Flow for every file in the quarantine folder:
     3. save the result to the LiteAudit database (shows up in the app)
     4. clean file   -> moved up into Downloads
        risky file   -> deleted
-       review-needed -> deleted or held, depending on --review
+       review-needed -> held (default) or deleted, depending on --review
 
 Run it from the same folder as liteaudit_app.py:
     python quarantine_watcher.py
@@ -127,7 +127,7 @@ def process_file(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Scan files in Downloads/quarantine.")
+    parser = argparse.ArgumentParser(description="Scan files in Downloads/LiteAudit_Quarantine.")
     parser.add_argument("--downloads", type=Path, default=Path.home() / "Downloads")
     parser.add_argument(
         "--db",
@@ -144,7 +144,7 @@ def main() -> None:
     args = parser.parse_args()
 
     downloads = args.downloads.expanduser().resolve()
-    quarantine = downloads / "quarantine"
+    quarantine = downloads / "LiteAudit_Quarantine"
     quarantine.mkdir(parents=True, exist_ok=True)
 
     log(f"Watching   : {quarantine}")
