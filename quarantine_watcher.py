@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
+import socket
 import sqlite3
 import time
 from datetime import datetime
@@ -29,12 +30,31 @@ from pathlib import Path
 from scanner import MAX_FILE_SIZE, scan_bytes
 
 INCOMPLETE_SUFFIXES = {".crdownload", ".download", ".opdownload", ".part", ".partial", ".tmp"}
+LOG_FILE = Path(__file__).resolve().parent / "watcher.log"
+LOCK_PORT = 48621  # local port used only to make sure one watcher runs at a time
 POLL_SECONDS = 1.0
 STABLE_POLLS = 2  # size and mtime must be unchanged for this many polls in a row
 
 
 def log(message: str) -> None:
-    print(f"[{datetime.now():%H:%M:%S}] {message}", flush=True)
+    line = f"[{datetime.now():%Y-%m-%d %H:%M:%S}] {message}"
+    print(line, flush=True)
+    try:
+        with LOG_FILE.open("a", encoding="utf-8") as handle:
+            handle.write(line + "\n")
+    except OSError:
+        pass  # logging must never stop the watcher
+
+
+def acquire_single_instance_lock() -> socket.socket | None:
+    """Return a bound socket if we are the only watcher, otherwise None."""
+    lock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        lock.bind(("127.0.0.1", LOCK_PORT))
+    except OSError:
+        lock.close()
+        return None
+    return lock
 
 
 def unique_destination(folder: Path, name: str) -> Path:
@@ -142,6 +162,16 @@ def main() -> None:
         help="what to do with 'Review needed' files (default: hold)",
     )
     args = parser.parse_args()
+
+    lock = acquire_single_instance_lock()
+    if lock is None:
+        log("Another quarantine watcher is already running; exiting.")
+        return
+    try:
+        if LOG_FILE.exists() and LOG_FILE.stat().st_size > 1_000_000:
+            LOG_FILE.replace(LOG_FILE.with_suffix(".old"))
+    except OSError:
+        pass
 
     downloads = args.downloads.expanduser().resolve()
     quarantine = downloads / "LiteAudit_Quarantine"
